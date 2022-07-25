@@ -53,6 +53,9 @@ interface BookSourceDao {
     @Query("select * from book_sources where loginUrl is not null and loginUrl != ''")
     fun flowLogin(): Flow<List<BookSource>>
 
+    @Query("select * from book_sources where bookSourceGroup is null or bookSourceGroup = '' or bookSourceGroup like '%未分组%'")
+    fun flowNoGroup(): Flow<List<BookSource>>
+
     @Query(
         """select * from book_sources 
         where enabledExplore = 1 
@@ -93,7 +96,14 @@ interface BookSourceDao {
     @Query("select * from book_sources where bookSourceGroup like '%' || :group || '%'")
     fun getByGroup(group: String): List<BookSource>
 
-    @Query("select * from book_sources where enabled = 1 and bookSourceGroup like '%' || :group || '%'")
+    @Query(
+        """select * from book_sources 
+        where enabled = 1 
+        and (bookSourceGroup = :group
+            or bookSourceGroup like :group || ',%' 
+            or bookSourceGroup like  '%,' || :group
+            or bookSourceGroup like  '%,' || :group || ',%')"""
+    )
     fun getEnabledByGroup(group: String): List<BookSource>
 
     @Query("select * from book_sources where enabled = 1 and bookSourceType = :type")

@@ -10,10 +10,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import java.util.*
 
-class RemoteBookViewModel(application: Application): BaseViewModel(application){
-
+class RemoteBookViewModel(application: Application) : BaseViewModel(application) {
+    var sortKey = Sort.Default
+    var sortAscending = false
     val dirList = arrayListOf<RemoteBook>()
 
     var dataCallback: DataCallback? = null
@@ -44,6 +46,26 @@ class RemoteBookViewModel(application: Application): BaseViewModel(application){
         awaitClose {
             dataCallback = null
         }
+    }.map { list ->
+        if (sortAscending) when (sortKey) {
+            Sort.Name -> list.sortedWith(compareBy({ !it.isDir }, { it.filename }))
+            else -> list.sortedWith(compareBy({ !it.isDir }, { it.lastModify }))
+        } else when (sortKey) {
+            Sort.Name -> list.sortedWith { o1, o2 ->
+                val compare = -compareValues(o1.isDir, o2.isDir)
+                if (compare == 0) {
+                    return@sortedWith -compareValues(o1.filename, o2.filename)
+                }
+                return@sortedWith compare
+            }
+            else -> list.sortedWith { o1, o2 ->
+                val compare = -compareValues(o1.isDir, o2.isDir)
+                if (compare == 0) {
+                    return@sortedWith -compareValues(o1.lastModify, o2.lastModify)
+                }
+                return@sortedWith compare
+            }
+        }
     }.flowOn(Dispatchers.IO)
 
     init {
@@ -52,10 +74,11 @@ class RemoteBookViewModel(application: Application): BaseViewModel(application){
         }
     }
 
-    fun loadRemoteBookList(path: String, loadCallback: (loading: Boolean) -> Unit) {
+    fun loadRemoteBookList(path: String?, loadCallback: (loading: Boolean) -> Unit) {
         execute {
             dataCallback?.clear()
-            val bookList = RemoteBookWebDav.getRemoteBookList(path)
+            val url = path ?: RemoteBookWebDav.rootBookUrl
+            val bookList = RemoteBookWebDav.getRemoteBookList(url)
             dataCallback?.setItems(bookList)
         }.onError {
             AppLog.put("获取webDav书籍出错\n${it.localizedMessage}", it)

@@ -350,6 +350,7 @@
     <string name="swap_sort">倒序-順序</string>
     <string name="sort">排序</string>
     <string name="sort_auto">智慧排序</string>
+    <string name="sort_default">默認排序</string>
     <string name="sort_manual">手動排序</string>
     <string name="sort_by_name">名稱排序</string>
     <string name="go_to_top">滾動到頂部</string>
@@ -1000,4 +1001,8 @@
     <string name="error_image_url_empty">图片链接为空，检查替换净化规则</string>
     <string name="variable_comment">变量说明(variableComment)</string>
     <string name="remote_book">远程书籍</string>
+    <string name="reading_time_sort">阅读时长排序</string>
+    <string name="last_read_time_sort">阅读时间排序</string>
+    <string name="reading_time_tag">阅读时长:</string>
+    <string name="last_read_time_tag">最后阅读时间:</string>
 </resources>
