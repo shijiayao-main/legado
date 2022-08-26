@@ -38,13 +38,14 @@ class WebViewActivity : VMBaseActivity<ActivityWebViewBinding, WebViewModel>() {
     private var webPic: String? = null
     private val saveImage = registerForActivityResult(HandleFileContract()) {
         it.uri?.let { uri ->
-            ACache.get(this).put(imagePathKey, uri.toString())
+            ACache.get().put(imagePathKey, uri.toString())
             viewModel.saveImage(webPic, uri.toString())
         }
     }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         binding.titleBar.title = intent.getStringExtra("title") ?: getString(R.string.loading)
+        binding.titleBar.subtitle = intent.getStringExtra("sourceName")
         viewModel.initData(intent) {
             val url = viewModel.baseUrl
             val headerMap = viewModel.headerMap
@@ -140,7 +141,7 @@ class WebViewActivity : VMBaseActivity<ActivityWebViewBinding, WebViewModel>() {
 
     private fun saveImage(webPic: String) {
         this.webPic = webPic
-        val path = ACache.get(this).getAsString(imagePathKey)
+        val path = ACache.get().getAsString(imagePathKey)
         if (path.isNullOrEmpty()) {
             selectSaveFolder()
         } else {
@@ -149,7 +150,7 @@ class WebViewActivity : VMBaseActivity<ActivityWebViewBinding, WebViewModel>() {
     }
     private fun selectSaveFolder() {
         val default = arrayListOf<SelectItem<Int>>()
-        val path = ACache.get(this).getAsString(imagePathKey)
+        val path = ACache.get().getAsString(imagePathKey)
         if (!path.isNullOrEmpty()) {
             default.add(SelectItem(path, -1))
         }

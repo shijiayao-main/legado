@@ -108,6 +108,8 @@ object PreferKey {
     const val welcomeShowTextDark = "welcomeShowTextDark"
     const val welcomeShowIcon = "welcomeShowIcon"
     const val welcomeShowIconDark = "welcomeShowIconDark"
+    const val pageTouchSlop = "pageTouchSlop"
+    const val showAddToShelfAlert = "showAddToShelfAlert"
 
     const val cPrimary = "colorPrimary"
     const val cAccent = "colorAccent"

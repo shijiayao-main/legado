@@ -12,6 +12,7 @@ import kotlin.coroutines.CoroutineContext
 class Coroutine<T>(
     val scope: CoroutineScope,
     context: CoroutineContext = Dispatchers.IO,
+    val startOption: CoroutineStart = CoroutineStart.DEFAULT,
     block: suspend CoroutineScope.() -> T
 ) {
 
@@ -22,9 +23,10 @@ class Coroutine<T>(
         fun <T> async(
             scope: CoroutineScope = DEFAULT,
             context: CoroutineContext = Dispatchers.IO,
+            start: CoroutineStart = CoroutineStart.DEFAULT,
             block: suspend CoroutineScope.() -> T
         ): Coroutine<T> {
-            return Coroutine(scope, context, block)
+            return Coroutine(scope, context, start, block)
         }
 
     }
@@ -114,8 +116,10 @@ class Coroutine<T>(
     }
 
     //取消当前任务
-    fun cancel(cause: CancellationException? = null) {
-        job.cancel(cause)
+    fun cancel(cause: ActivelyCancelException = ActivelyCancelException()) {
+        if (!job.isCancelled) {
+            job.cancel(cause)
+        }
         cancel?.let {
             MainScope().launch {
                 if (null == it.context) {
@@ -133,21 +137,25 @@ class Coroutine<T>(
         return job.invokeOnCompletion(handler)
     }
 
+    fun start() {
+        job.start()
+    }
+
     private fun executeInternal(
         context: CoroutineContext,
         block: suspend CoroutineScope.() -> T
     ): Job {
-        return (scope + Dispatchers.Main).launch {
+        return (scope + Dispatchers.Main).launch(start = startOption) {
             try {
                 start?.let { dispatchVoidCallback(this, it) }
                 ensureActive()
-                val value = executeBlock(scope, context, timeMillis ?: 0L, block)
+                val value = executeBlock(this, context, timeMillis ?: 0L, block)
                 ensureActive()
                 success?.let { dispatchCallback(this, value, it) }
             } catch (e: Throwable) {
                 e.printOnDebug()
-                if (e is CancellationException && e !is TimeoutCancellationException) {
-                    return@launch
+                if (e is CancellationException && e !is ActivelyCancelException && isCancelled) {
+                    this@Coroutine.cancel()
                 }
                 val consume: Boolean = errorReturn?.value?.let { value ->
                     success?.let { dispatchCallback(this, value, it) }

@@ -27,7 +27,9 @@ import io.legado.app.ui.widget.number.NumberPickerDialog
 import io.legado.app.utils.*
 import splitties.init.appCtx
 
-
+/**
+ * 其它设置
+ */
 class OtherConfigFragment : PreferenceFragment(),
     SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -117,6 +119,7 @@ class OtherConfigFragment : PreferenceFragment(),
                         ImageProvider.bitmapLruCache.resize(ImageProvider.cacheSize)
                     }
             }
+
         }
         return super.onPreferenceTreeClick(preference)
     }

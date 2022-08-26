@@ -123,9 +123,9 @@ class MainViewModel(application: Application) : BaseViewModel(application) {
                 AnalyzeRule(book, source).evalJS(preUpdateJs)
             }
             if (book.tocUrl.isBlank()) {
-                WebBook.getBookInfoAwait(this, source, book)
+                WebBook.getBookInfoAwait(source, book)
             }
-            val toc = WebBook.getChapterListAwait(this, source, book).getOrThrow()
+            val toc = WebBook.getChapterListAwait(source, book).getOrThrow()
             if (book.bookUrl == bookUrl) {
                 appDb.bookDao.update(book)
             } else {
@@ -187,12 +187,7 @@ class MainViewModel(application: Application) : BaseViewModel(application) {
         cacheBookJob?.cancel()
         cacheBookJob = viewModelScope.launch(upTocPool) {
             while (isActive) {
-                if (CacheBookService.isRun) {
-                    cacheBookJob?.cancel()
-                    cacheBookJob = null
-                    return@launch
-                }
-                if (!CacheBook.isRun) {
+                if (CacheBookService.isRun || !CacheBook.isRun) {
                     cacheBookJob?.cancel()
                     cacheBookJob = null
                     return@launch
