@@ -21,11 +21,15 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
-
+/**
+ * 备份
+ */
 object Backup {
 
     val backupPath: String by lazy {
-        appCtx.filesDir.getFile("backup").absolutePath
+        val path = appCtx.filesDir.getFile("backup").absolutePath
+        FileUtils.createFolderIfNotExist(path)
+        path
     }
 
     val backupFileNames by lazy {
@@ -102,7 +106,7 @@ object Backup {
                     .writeText(GSON.toJson(it))
             }
             ensureActive()
-            Preferences.getSharedPreferences(appCtx, backupPath, "config")?.let { sp ->
+            appCtx.getSharedPreferences(backupPath, "config")?.let { sp ->
                 val edit = sp.edit()
                 appCtx.defaultSharedPreferences.all.forEach { (key, value) ->
                     if (BackupConfig.keyIsNotIgnore(key)) {

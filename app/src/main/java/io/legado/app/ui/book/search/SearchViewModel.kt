@@ -7,14 +7,27 @@ import io.legado.app.base.BaseViewModel
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.entities.SearchKeyword
+import io.legado.app.help.config.AppConfig
 import io.legado.app.model.webBook.SearchModel
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModel(application: Application) : BaseViewModel(application) {
+    val bookshelf = hashSetOf<String>()
+    val upAdapterLiveData = MutableLiveData<String>()
+    val searchScope: SearchScope = SearchScope(AppConfig.searchScope)
     private val searchModel = SearchModel(viewModelScope, object : SearchModel.CallBack {
+
+        override fun getSearchScope(): SearchScope {
+            return searchScope
+        }
+
         override fun onSearchStart() {
             isSearchLiveData.postValue(true)
         }
@@ -48,6 +61,18 @@ class SearchViewModel(application: Application) : BaseViewModel(application) {
         }
     }.flowOn(IO)
 
+    init {
+        viewModelScope.launch {
+            appDb.bookDao.flowAll().mapLatest { books ->
+                books.map { "${it.name}-${it.author}" }
+            }.collect {
+                bookshelf.clear()
+                bookshelf.addAll(it)
+                upAdapterLiveData.postValue("isInBookshelf")
+            }
+        }
+    }
+
     /**
      * 开始搜索
      */
@@ -77,6 +102,7 @@ class SearchViewModel(application: Application) : BaseViewModel(application) {
         execute {
             appDb.searchKeywordDao.get(key)?.let {
                 it.usage = it.usage + 1
+                it.lastUseTime = System.currentTimeMillis()
                 appDb.searchKeywordDao.update(it)
             } ?: appDb.searchKeywordDao.insert(SearchKeyword(key, 1))
         }

@@ -10,6 +10,8 @@ import androidx.appcompat.widget.SearchView
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.databinding.ActivitySourceDebugBinding
+import io.legado.app.help.source.exploreKinds
+import io.legado.app.lib.dialogs.selector
 import io.legado.app.lib.theme.accentColor
 import io.legado.app.lib.theme.primaryColor
 import io.legado.app.ui.qrcode.QrCodeResult
@@ -21,6 +23,7 @@ import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.launch
 import splitties.views.onClick
+import splitties.views.onLongClick
 
 class BookSourceDebugActivity : VMBaseActivity<ActivitySourceDebugBinding, BookSourceDebugModel>() {
 
@@ -88,16 +91,6 @@ class BookSourceDebugActivity : VMBaseActivity<ActivitySourceDebugBinding, BookS
                 binding.textMy.text = it
             }
         }
-        viewModel.bookSource?.exploreKinds?.firstOrNull {
-            !it.url.isNullOrBlank()
-        }?.let {
-            binding.textFx.text = "${it.title}::${it.url}"
-            if (it.title.startsWith("ERROR:")) {
-                adapter.addItem("获取发现出错\n${it.url}")
-                openOrCloseHelp(false)
-                searchView.clearFocus()
-            }
-        }
         binding.textMy.onClick {
             searchView.setQuery(binding.textMy.text, true)
         }
@@ -135,6 +128,29 @@ class BookSourceDebugActivity : VMBaseActivity<ActivitySourceDebugBinding, BookS
                     searchView.setQuery("--$query", true)
                 } else {
                     searchView.setQuery(query, true)
+                }
+            }
+        }
+        launch {
+            val exploreKinds = viewModel.bookSource?.exploreKinds()?.filter {
+                !it.url.isNullOrBlank()
+            }
+            exploreKinds?.firstOrNull()?.let {
+                binding.textFx.text = "${it.title}::${it.url}"
+                if (it.title.startsWith("ERROR:")) {
+                    adapter.addItem("获取发现出错\n${it.url}")
+                    openOrCloseHelp(false)
+                    searchView.clearFocus()
+                    return@launch
+                }
+            }
+            exploreKinds?.map { it.title }?.let { exploreKindTitles ->
+                binding.textFx.onLongClick {
+                    selector("选择发现", exploreKindTitles) { _, index ->
+                        val explore = exploreKinds[index]
+                        binding.textFx.text = "${explore.title}::${explore.url}"
+                        searchView.setQuery(binding.textFx.text, true)
+                    }
                 }
             }
         }

@@ -33,7 +33,8 @@ class FileAssociationActivity :
                 AppConfig.defaultBookTreeUri = treeUri.toString()
                 importBook(treeUri, uri)
             } ?: let {
-                toastOnUi("不选择文件夹重启应用后可能没有权限访问")
+                val storageHelp = String(assets.open("storageHelp.md").readBytes())
+                toastOnUi(storageHelp)
                 viewModel.importBook(uri)
             }
         }
@@ -121,7 +122,7 @@ class FileAssociationActivity :
             val treeUriStr = AppConfig.defaultBookTreeUri
             if (treeUriStr.isNullOrEmpty()) {
                 localBookTreeSelect.launch {
-                    title = "选择保存书籍的文件夹"
+                    title = getString(R.string.select_book_folder)
                     mode = HandleFileContract.DIR_SYS
                 }
             } else {
@@ -145,7 +146,7 @@ class FileAssociationActivity :
                             if (doc == null || fileDoc.lastModified > doc.lastModified()) {
                                 if (doc == null) {
                                     doc = treeDoc.createFile(FileUtils.getMimeType(name), name)
-                                        ?: throw SecurityException("Permission Denial")
+                                        ?: throw SecurityException("请重新设置书籍保存位置\nPermission Denial")
                                 }
                                 contentResolver.openOutputStream(doc.uri)!!.use { oStream ->
                                     inputStream.copyTo(oStream)
@@ -172,7 +173,7 @@ class FileAssociationActivity :
             }.onFailure {
                 when (it) {
                     is SecurityException -> localBookTreeSelect.launch {
-                        title = "选择保存书籍的文件夹"
+                        title = getString(R.string.select_book_folder)
                         mode = HandleFileContract.DIR_SYS
                     }
                     else -> {

@@ -3,6 +3,7 @@ package io.legado.app.constant
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.provider.Settings
+import androidx.annotation.Keep
 import com.script.javascript.RhinoScriptEngine
 import io.legado.app.BuildConfig
 import splitties.init.appCtx
@@ -41,7 +42,9 @@ object AppConst {
     const val bookGroupAllId = -1L
     const val bookGroupLocalId = -2L
     const val bookGroupAudioId = -3L
-    const val bookGroupNoneId = -4L
+    const val bookGroupNetNoneId = -4L
+    const val bookGroupLocalNoneId = -5L
+    const val bookGroupErrorId = -11L
 
     const val notificationIdRead = -1122391
     const val notificationIdAudio = -1122392
@@ -68,6 +71,7 @@ object AppConst {
 
     val appInfo: AppInfo by lazy {
         val appInfo = AppInfo()
+        @Suppress("DEPRECATION")
         appCtx.packageManager.getPackageInfo(appCtx.packageName, PackageManager.GET_ACTIVITIES)
             ?.let {
                 appInfo.versionName = it.versionName
@@ -84,6 +88,7 @@ object AppConst {
     val charsets =
         arrayListOf("UTF-8", "GB2312", "GB18030", "GBK", "Unicode", "UTF-16", "UTF-16LE", "ASCII")
 
+    @Keep
     data class AppInfo(
         var versionCode: Long = 0L,
         var versionName: String = ""

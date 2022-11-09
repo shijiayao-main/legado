@@ -6,34 +6,36 @@ import android.view.Menu
 import android.view.MenuItem
 import androidx.activity.viewModels
 import androidx.appcompat.widget.PopupMenu
+import androidx.appcompat.widget.SearchView
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.constant.AppConst
-import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookGroup
 import io.legado.app.data.entities.BookSource
 import io.legado.app.databinding.ActivityArrangeBookBinding
+import io.legado.app.help.book.contains
+import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.theme.primaryColor
 import io.legado.app.ui.book.group.GroupManageDialog
 import io.legado.app.ui.book.group.GroupSelectDialog
-import io.legado.app.ui.theme.AppTheme
 import io.legado.app.ui.widget.SelectActionBar
+import io.legado.app.ui.widget.dialog.WaitDialog
 import io.legado.app.ui.widget.recycler.DragSelectTouchHelper
 import io.legado.app.ui.widget.recycler.ItemTouchCallback
 import io.legado.app.ui.widget.recycler.VerticalDivider
 import io.legado.app.utils.cnCompare
-import io.legado.app.utils.getPrefInt
 import io.legado.app.utils.setEdgeEffectColor
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,23 +57,42 @@ class BookshelfManageActivity :
     private val adapter by lazy { BookAdapter(this, this) }
     private var booksFlowJob: Job? = null
     private var menu: Menu? = null
-    private var groupId: Long = -1
+    private var searchView: SearchView? = null
+    private var books: List<Book>? = null
+    private val waitDialog by lazy { WaitDialog(this) }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
-        groupId = intent.getLongExtra("groupId", -1)
+        viewModel.groupId = intent.getLongExtra("groupId", -1)
         launch {
-            binding.titleBar.subtitle = withContext(IO) {
-                appDb.bookGroupDao.getByID(groupId)?.groupName
+            viewModel.groupName = withContext(IO) {
+                appDb.bookGroupDao.getByID(viewModel.groupId)?.groupName
                     ?: getString(R.string.no_group)
             }
+            binding.titleBar.subtitle = viewModel.groupName
         }
-        initView()
+        initRecyclerView()
+        initOtherView()
         initGroupData()
-        initBookData()
+        upBookDataByGroupId()
+    }
+
+    override fun observeLiveBus() {
+        viewModel.batchChangeSourceState.observe(this) {
+            if (it) {
+                waitDialog.setText(R.string.change_source_batch)
+                waitDialog.show()
+            } else {
+                waitDialog.dismiss()
+            }
+        }
+        viewModel.batchChangeSourceProcessLiveData.observe(this) {
+            waitDialog.setText(it)
+        }
     }
 
     override fun onCompatCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.bookshelf_manage, menu)
+        initSearchView(menu)
         return super.onCompatCreateOptionsMenu(menu)
     }
 
@@ -93,13 +114,43 @@ class BookshelfManageActivity :
         selectGroup(groupRequestCode, 0)
     }
 
-    private fun initView() {
+    private fun showTitle() {
+        binding.titleBar.title = getString(R.string.bookshelf_management)
+        binding.titleBar.subtitle = viewModel.groupName
+    }
+
+    private fun initSearchView(menu: Menu) {
+        searchView = menu.findItem(R.id.menu_screen).actionView as SearchView
+        searchView?.run {
+            setOnCloseListener {
+                showTitle()
+                false
+            }
+            setOnSearchClickListener {
+                binding.titleBar.title = ""
+                binding.titleBar.subtitle = ""
+            }
+            setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+                override fun onQueryTextSubmit(query: String?): Boolean {
+                    return false
+                }
+
+                override fun onQueryTextChange(newText: String?): Boolean {
+                    upBookData()
+                    return false
+                }
+
+            })
+        }
+    }
+
+    private fun initRecyclerView() {
         binding.recyclerView.setEdgeEffectColor(primaryColor)
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.addItemDecoration(VerticalDivider(this))
         binding.recyclerView.adapter = adapter
         val itemTouchCallback = ItemTouchCallback(adapter)
-        itemTouchCallback.isCanDrag = getPrefInt(PreferKey.bookshelfSort) == 3
+        itemTouchCallback.isCanDrag = AppConfig.bookshelfSort == 3
         val dragSelectTouchHelper: DragSelectTouchHelper =
             DragSelectTouchHelper(adapter.dragSelectCallback).setSlideArea(16, 50)
         dragSelectTouchHelper.attachToRecyclerView(binding.recyclerView)
@@ -107,20 +158,15 @@ class BookshelfManageActivity :
         dragSelectTouchHelper.activeSlideSelect()
         // Note: need judge selection first, so add ItemTouchHelper after it.
         ItemTouchHelper(itemTouchCallback).attachToRecyclerView(binding.recyclerView)
+    }
+
+    private fun initOtherView() {
         binding.selectActionBar.setMainActionText(R.string.move_to_group)
         binding.selectActionBar.inflateMenu(R.menu.bookshelf_menage_sel)
         binding.selectActionBar.setOnMenuItemClickListener(this)
         binding.selectActionBar.setCallBack(this)
-        binding.composeView.setContent {
-            AppTheme {
-                BatchChangeSourceDialog(
-                    state = viewModel.batchChangeSourceState,
-                    size = viewModel.batchChangeSourceSize,
-                    position = viewModel.batchChangeSourcePosition
-                ) {
-                    viewModel.batchChangeSourceCoroutine?.cancel()
-                }
-            }
+        waitDialog.setOnCancelListener {
+            viewModel.batchChangeSourceCoroutine?.cancel()
         }
     }
 
@@ -136,33 +182,52 @@ class BookshelfManageActivity :
         }
     }
 
-    private fun initBookData() {
+    private fun upBookDataByGroupId() {
         booksFlowJob?.cancel()
         booksFlowJob = launch {
-            when (groupId) {
-                AppConst.rootGroupId -> appDb.bookDao.flowNoGroup()
+            when (viewModel.groupId) {
+                AppConst.rootGroupId -> appDb.bookDao.flowNetNoGroup()
                 AppConst.bookGroupAllId -> appDb.bookDao.flowAll()
                 AppConst.bookGroupLocalId -> appDb.bookDao.flowLocal()
                 AppConst.bookGroupAudioId -> appDb.bookDao.flowAudio()
-                AppConst.bookGroupNoneId -> appDb.bookDao.flowNoGroup()
-                else -> appDb.bookDao.flowByGroup(groupId)
-            }.conflate().map { books ->
-                when (getPrefInt(PreferKey.bookshelfSort)) {
-                    1 -> books.sortedByDescending {
+                AppConst.bookGroupNetNoneId -> appDb.bookDao.flowNetNoGroup()
+                AppConst.bookGroupLocalNoneId -> appDb.bookDao.flowLocalNoGroup()
+                AppConst.bookGroupErrorId -> appDb.bookDao.flowUpdateError()
+                else -> appDb.bookDao.flowByGroup(viewModel.groupId)
+            }.conflate().map { list ->
+                when (AppConfig.bookshelfSort) {
+                    1 -> list.sortedByDescending {
                         it.latestChapterTime
                     }
-                    2 -> books.sortedWith { o1, o2 ->
+                    2 -> list.sortedWith { o1, o2 ->
                         o1.name.cnCompare(o2.name)
                     }
-                    3 -> books.sortedBy {
+                    3 -> list.sortedBy {
                         it.order
                     }
-                    else -> books.sortedByDescending {
+                    else -> list.sortedByDescending {
                         it.durChapterTime
                     }
                 }
-            }.conflate().collect { books ->
+            }.flowOn(IO)
+                .conflate().collect {
+                    books = it
+                    upBookData()
+                }
+        }
+    }
+
+    private fun upBookData() {
+        books?.let { books ->
+            val searchKey = searchView?.query
+            if (searchKey.isNullOrEmpty()) {
                 adapter.setItems(books)
+            } else {
+                books.filter {
+                    it.contains(searchKey.toString())
+                }.let {
+                    adapter.setItems(it)
+                }
             }
         }
     }
@@ -171,9 +236,11 @@ class BookshelfManageActivity :
         when (item.itemId) {
             R.id.menu_group_manage -> showDialogFragment<GroupManageDialog>()
             else -> if (item.groupId == R.id.menu_group) {
+                viewModel.groupName = item.title.toString()
                 binding.titleBar.subtitle = item.title
-                groupId = appDb.bookGroupDao.getByName(item.title.toString())?.groupId ?: 0
-                initBookData()
+                viewModel.groupId =
+                    appDb.bookGroupDao.getByName(item.title.toString())?.groupId ?: 0
+                upBookDataByGroupId()
             }
         }
         return super.onCompatOptionsItemSelected(item)
@@ -181,11 +248,7 @@ class BookshelfManageActivity :
 
     override fun onMenuItemClick(item: MenuItem?): Boolean {
         when (item?.itemId) {
-            R.id.menu_del_selection ->
-                alert(titleResource = R.string.draw, messageResource = R.string.sure_del) {
-                    okButton { viewModel.deleteBook(*adapter.selection.toTypedArray()) }
-                    noButton()
-                }
+            R.id.menu_del_selection -> alertDelSelection()
             R.id.menu_update_enable ->
                 viewModel.upCanUpdate(adapter.selection, true)
             R.id.menu_update_disable ->
@@ -203,6 +266,13 @@ class BookshelfManageActivity :
             groupList.forEach { bookGroup ->
                 subMenu.add(R.id.menu_group, bookGroup.order, Menu.NONE, bookGroup.groupName)
             }
+        }
+    }
+
+    private fun alertDelSelection() {
+        alert(titleResource = R.string.draw, messageResource = R.string.sure_del) {
+            okButton { viewModel.deleteBook(*adapter.selection.toTypedArray()) }
+            noButton()
         }
     }
 

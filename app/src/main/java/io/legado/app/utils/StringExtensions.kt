@@ -2,11 +2,12 @@
 
 package io.legado.app.utils
 
-import io.legado.app.constant.AppPattern.dataUriRegex
 import android.icu.text.Collator
 import android.icu.util.ULocale
 import android.net.Uri
 import android.text.Editable
+import cn.hutool.core.lang.Validator
+import io.legado.app.constant.AppPattern.dataUriRegex
 import java.io.File
 import java.util.*
 
@@ -17,11 +18,14 @@ fun String?.isContentScheme(): Boolean = this?.startsWith("content://") == true
 fun String.toEditable(): Editable = Editable.Factory.getInstance().newEditable(this)
 
 fun String.parseToUri(): Uri {
-    return if (isContentScheme()) {
-        Uri.parse(this)
-    } else {
+    return if (isUri()) Uri.parse(this) else {
         Uri.fromFile(File(this))
     }
+}
+
+fun String?.isUri(): Boolean {
+    this ?: return false
+    return this.startsWith("file://", true) || isContentScheme()
 }
 
 fun String?.isAbsUrl() =
@@ -66,11 +70,12 @@ fun String?.isTrue(nullIsTrue: Boolean = false): Boolean {
     if (this.isNullOrBlank() || this == "null") {
         return nullIsTrue
     }
-    return !this.matches("\\s*(?i)(false|no|not|0)\\s*".toRegex())
+    return !this.trim().matches("(?i)^(false|no|not|0)$".toRegex())
 }
 
-fun String.splitNotBlank(vararg delimiter: String): Array<String> = run {
-    this.split(*delimiter).map { it.trim() }.filterNot { it.isBlank() }.toTypedArray()
+fun String.splitNotBlank(vararg delimiter: String, limit: Int = 0): Array<String> = run {
+    this.split(*delimiter, limit = limit).map { it.trim() }.filterNot { it.isBlank() }
+        .toTypedArray()
 }
 
 fun String.splitNotBlank(regex: Regex, limit: Int = 0): Array<String> = run {

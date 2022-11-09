@@ -13,8 +13,9 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.databinding.ActivitySearchContentBinding
-import io.legado.app.help.BookHelp
 import io.legado.app.help.IntentData
+import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.isLocal
 import io.legado.app.lib.theme.bottomBackground
 import io.legado.app.lib.theme.getPrimaryTextColor
 import io.legado.app.lib.theme.primaryTextColor
@@ -131,9 +132,9 @@ class SearchContentActivity :
     }
 
     override fun observeLiveBus() {
-        observeEvent<BookChapter>(EventBus.SAVE_CONTENT) { chapter ->
+        observeEvent<Pair<Book, BookChapter>>(EventBus.SAVE_CONTENT) { (book, chapter) ->
             viewModel.book?.bookUrl?.let { bookUrl ->
-                if (chapter.bookUrl == bookUrl) {
+                if (book.bookUrl == bookUrl) {
                     viewModel.cacheChapterNames.add(chapter.getFileName())
                     adapter.notifyItemChanged(chapter.index, true)
                 }
@@ -192,8 +193,8 @@ class SearchContentActivity :
         }
     }
 
-    val isLocalBook: Boolean
-        get() = viewModel.book?.isLocalBook() == true
+    private val isLocalBook: Boolean
+        get() = viewModel.book?.isLocal == true
 
     override fun openSearchResult(searchResult: SearchResult, index: Int) {
         postEvent(EventBus.SEARCH_RESULT, viewModel.searchResultList as List<SearchResult>)

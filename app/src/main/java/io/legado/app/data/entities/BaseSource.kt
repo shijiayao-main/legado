@@ -1,6 +1,6 @@
 package io.legado.app.data.entities
 
-import android.util.Base64
+import cn.hutool.crypto.symmetric.AES
 import com.script.SimpleBindings
 import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
@@ -119,10 +119,7 @@ interface BaseSource : JsExtensions {
         try {
             val key = AppConst.androidId.encodeToByteArray(0, 16)
             val cache = CacheManager.get("userInfo_${getKey()}") ?: return null
-            val encodeBytes = Base64.decode(cache, Base64.DEFAULT)
-            val decodeBytes = EncoderUtils.decryptAES(encodeBytes, key)
-                ?: return null
-            return String(decodeBytes)
+            return AES(key).decryptStr(cache)
         } catch (e: Exception) {
             AppLog.put("获取登陆信息出错", e)
             return null
@@ -139,8 +136,7 @@ interface BaseSource : JsExtensions {
     fun putLoginInfo(info: String): Boolean {
         return try {
             val key = (AppConst.androidId).encodeToByteArray(0, 16)
-            val encodeBytes = EncoderUtils.encryptAES(info.toByteArray(), key)
-            val encodeStr = Base64.encodeToString(encodeBytes, Base64.DEFAULT)
+            val encodeStr = AES(key).encryptBase64(info)
             CacheManager.put("userInfo_${getKey()}", encodeStr)
             true
         } catch (e: Exception) {

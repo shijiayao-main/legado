@@ -12,6 +12,7 @@ import io.legado.app.base.BaseDialogFragment
 import io.legado.app.constant.EventBus
 import io.legado.app.databinding.DialogReadAloudBinding
 import io.legado.app.help.config.AppConfig
+import io.legado.app.lib.dialogs.selector
 import io.legado.app.lib.theme.bottomBackground
 import io.legado.app.lib.theme.getPrimaryTextColor
 import io.legado.app.model.ReadAloud
@@ -22,6 +23,7 @@ import io.legado.app.ui.widget.seekbar.SeekBarChangeListener
 import io.legado.app.utils.ColorUtils
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.observeEvent
+import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 
 
@@ -83,7 +85,6 @@ class ReadAloudDialog : BaseDialogFragment(R.layout.dialog_read_aloud) {
     private fun initData() = binding.run {
         upPlayState()
         upTimerText(BaseReadAloudService.timeMinute)
-        seekTimer.progress = BaseReadAloudService.timeMinute
         cbTtsFollowSys.isChecked = requireContext().getPrefBoolean("ttsFollowSys", true)
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
@@ -122,6 +123,17 @@ class ReadAloudDialog : BaseDialogFragment(R.layout.dialog_read_aloud) {
             seekTtsSpeechRate.progress = AppConfig.ttsSpeechRate + 1
             AppConfig.ttsSpeechRate = AppConfig.ttsSpeechRate + 1
             upTtsSpeechRate()
+        }
+        ivTimer.setOnClickListener {
+            AppConfig.ttsTimer = seekTimer.progress
+            toastOnUi("保存设定时间成功！")
+        }
+        tvTimer.setOnClickListener {
+            val times = intArrayOf(0, 5, 10, 15, 30, 60, 90, 180)
+            val timeKeys = times.map { "$it 分钟" }
+            context?.selector("设定时间", timeKeys) { _, index ->
+                ReadAloud.setTimer(requireContext(), times[index])
+            }
         }
         //设置保存的默认值
         seekTtsSpeechRate.progress = AppConfig.ttsSpeechRate
@@ -169,7 +181,7 @@ class ReadAloudDialog : BaseDialogFragment(R.layout.dialog_read_aloud) {
             if (BaseReadAloudService.timeMinute > 0) {
                 binding.seekTimer.progress = BaseReadAloudService.timeMinute
             } else {
-                binding.seekTimer.progress = 0
+                binding.seekTimer.progress = AppConfig.ttsTimer
             }
         }
     }

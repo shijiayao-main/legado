@@ -1,10 +1,12 @@
 package io.legado.app.model.localBook
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.text.TextUtils
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
-import io.legado.app.help.BookHelp
+import io.legado.app.help.book.BookHelp
 import io.legado.app.utils.*
 import me.ag2s.epublib.domain.EpubBook
 import me.ag2s.epublib.domain.Resource
@@ -85,17 +87,16 @@ class EpubFile(var book: Book) {
                 if (!File(book.coverUrl!!).exists()) {
                     /*部分书籍DRM处理后，封面获取异常，待优化*/
                     it.coverImage?.inputStream?.use { input ->
-                        BitmapUtils.decodeBitmap(input)?.let { cover ->
-                            val out =
-                                FileOutputStream(FileUtils.createFileIfNotExist(book.coverUrl!!))
-                            cover.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                            out.flush()
-                            out.close()
-                        }
-                    }
+                        val cover = BitmapFactory.decodeStream(input)
+                        val out = FileOutputStream(FileUtils.createFileIfNotExist(book.coverUrl!!))
+                        cover.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                        out.flush()
+                        out.close()
+                    } ?: AppLog.putDebug("Epub: 封面获取为空. path: ${book.bookUrl}")
                 }
             }
         } catch (e: Exception) {
+            AppLog.put("加载书籍封面失败\n${e.localizedMessage}", e)
             e.printOnDebug()
         }
     }
@@ -109,17 +110,19 @@ class EpubFile(var book: Book) {
             val zipFile = BookHelp.getEpubFile(book)
             EpubReader().readEpubLazy(zipFile, "utf-8")
         }.onFailure {
+            AppLog.put("读取Epub文件失败\n${it.localizedMessage}", it)
             it.printOnDebug()
-        }.getOrNull()
+        }.getOrThrow()
     }
 
     private fun getContent(chapter: BookChapter): String? {
         /**
          * <image width="1038" height="670" xlink:href="..."/>
          * ...titlepage.xhtml
+         * 大多数epub文件的封面页都会带有cover，可以一定程度上解决封面读取问题
          */
         if (chapter.url.contains("titlepage.xhtml") ||
-            chapter.url.contains("cover.xhtml")
+            chapter.url.contains("cover")
         ) {
             return "<img src=\"cover.jpeg\" />"
         }
@@ -129,25 +132,34 @@ class EpubFile(var book: Book) {
             val startFragmentId = chapter.startFragmentId
             val endFragmentId = chapter.endFragmentId
             val elements = Elements()
-            var isChapter = false
+            var hasMoreResources = false
+            val includeNextChapterResource = !endFragmentId.isNullOrBlank()
             /*一些书籍依靠href索引的resource会包含多个章节，需要依靠fragmentId来截取到当前章节的内容*/
             /*注:这里较大增加了内容加载的时间，所以首次获取内容后可存储到本地cache，减少重复加载*/
             for (res in epubBook.contents) {
-                if (chapter.url.substringBeforeLast("#") == res.href) {
-                    elements.add(getBody(res, startFragmentId, endFragmentId))
-                    isChapter = true
-                    /**
-                     * fix https://github.com/gedoor/legado/issues/1927 加载全部内容的bug
-                     * content src text/000001.html（当前章节）
-                    -                   * content src text/000001.html#toc_id_x (下一章节）
-                     */
-                    if (res.href == nextUrl?.substringBeforeLast("#")) break
-                } else if (isChapter) {
-                    // fix 最后一章存在多个html时 内容缺失
-                    if (res.href == nextUrl?.substringBeforeLast("#")) {
+                val isFirstResource = chapter.url.substringBeforeLast("#") == res.href
+                val isNextChapterResource = res.href == nextUrl?.substringBeforeLast("#")
+                if (isFirstResource) {
+                    // add first resource to elements
+                    elements.add(
+                        /* pass endFragmentId if only has one resource */
+                        getBody(res, startFragmentId, endFragmentId)
+                    )
+                    // check current resource 
+                    if (isNextChapterResource) {
+                        /* FragmentId should not be same in same resource */
+                        if (!endFragmentId.isNullOrBlank() && endFragmentId == startFragmentId)
+                            AppLog.putDebug("Epub: Resource (${res.href}) has same FragmentId, check the file: ${book.bookUrl}")
                         break
                     }
-                    elements.add(getBody(res, startFragmentId, endFragmentId))
+                    hasMoreResources = true
+                } else if (hasMoreResources) {
+                    if (isNextChapterResource) {
+                        if (includeNextChapterResource) elements.add(getBody(res, null/* FragmentId may be same in different resources, pass null */, endFragmentId))
+                        break
+                    }
+                    // rest resource should not have fragmentId, pass null 
+                    elements.add(getBody(res, null, null))
                 }
             }
             //title标签中的内容不需要显示在正文中，去除
@@ -224,6 +236,7 @@ class EpubFile(var book: Book) {
         epubBook?.let { eBook ->
             val refs = eBook.tableOfContents.tocReferences
             if (refs == null || refs.isEmpty()) {
+                AppLog.putDebug("Epub: NCX file parse error, check the file: ${book.bookUrl}")
                 val spineReferences = eBook.spine.spineReferences
                 var i = 0
                 val size = spineReferences.size
@@ -251,6 +264,7 @@ class EpubFile(var book: Book) {
                     } else {
                         chapter.title = title
                     }
+                    chapterList.lastOrNull()?.putVariable("nextUrl", chapter.url)
                     chapterList.add(chapter)
                     i++
                 }
@@ -262,8 +276,6 @@ class EpubFile(var book: Book) {
                 }
             }
         }
-        book.latestChapterTitle = chapterList.lastOrNull()?.title
-        book.totalChapterNum = chapterList.size
         return chapterList
     }
 

@@ -1,10 +1,8 @@
 plugins {
     id "com.android.application"
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.devtools.ksp'
     id 'kotlin-parcelize'
     id 'kotlin-kapt'
-    id "de.timfreiheit.resourceplaceholders"
     //id "com.google.gms.google-services"
 }
 apply from: 'download.gradle'
@@ -18,8 +16,7 @@ def version = "3." + releaseTime()
 def gitCommits = Integer.parseInt('git rev-list HEAD --count'.execute().text.trim())
 
 android {
-    compileSdkVersion 32
-    buildToolsVersion "32.0.0"
+    compileSdk 33
     namespace 'io.legado.app'
     kotlinOptions {
         jvmTarget = "11"
@@ -41,13 +38,15 @@ android {
     }
     defaultConfig {
         applicationId "io.legado.app"
-        minSdkVersion 21
-        targetSdkVersion 32
+        minSdk 21
+        targetSdk 33
         versionCode 10000 + gitCommits
         versionName version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         project.ext.set("archivesBaseName", name + "_" + version)
         multiDexEnabled true
+
+        buildConfigField "String", "Cronet_Version", "\"$CronetVersion\""
 
         javaCompileOptions {
             annotationProcessorOptions {
@@ -58,27 +57,24 @@ android {
                 ]
             }
         }
-        ksp {
-            arg("room.schemaLocation", "$projectDir/schemas")
-        }
     }
     buildFeatures {
+        buildConfig true
         viewBinding true
-        compose true
     }
     buildTypes {
         release {
-            buildConfigField "String", "Cronet_Version", "\"$CronetVersion\""
             if (project.hasProperty("RELEASE_STORE_FILE")) {
                 signingConfig signingConfigs.myConfig
             }
             applicationIdSuffix '.release'
 
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            buildConfigField "String", "Cronet_Version", "\"$CronetVersion\""
+
             if (project.hasProperty("RELEASE_STORE_FILE")) {
                 signingConfig signingConfigs.myConfig
             }
@@ -87,23 +83,25 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        android.applicationVariants.all { variant ->
-            variant.outputs.all {
-                def flavor = variant.productFlavors[0].name
-                outputFileName = "${name}_${flavor}_${defaultConfig.versionName}.apk"
-            }
+    }
+
+    android.applicationVariants.all { variant ->
+        variant.outputs.all {
+            def flavor = variant.productFlavors[0].name
+            outputFileName = "${name}_${flavor}_${defaultConfig.versionName}.apk"
         }
     }
-    flavorDimensions "mode"
+
+    flavorDimensions.add("mode")
     productFlavors {
         app {
             dimension "mode"
-            manifestPlaceholders = [APP_CHANNEL_VALUE: "app"]
+            manifestPlaceholders.put("APP_CHANNEL_VALUE", "app")
         }
         google {
             dimension "mode"
             applicationId "io.legado.play"
-            manifestPlaceholders = [APP_CHANNEL_VALUE: "google"]
+            manifestPlaceholders.put("APP_CHANNEL_VALUE", "google")
         }
     }
     compileOptions {
@@ -112,9 +110,6 @@ android {
         // Sets Java compatibility to Java 11
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion "$compose_compiler_version"
     }
 
     sourceSets {
@@ -129,23 +124,19 @@ android {
     }
 }
 
-resourcePlaceholders {
-    files = ['xml/shortcuts.xml']
-}
-
 dependencies {
-    //noinspection GradleDependency
-    coreLibraryDesugaring('com.android.tools:desugar_jdk_libs:1.1.6')
+    compileOnly "com.android.tools.build:gradle:$agp_version"
+    //noinspection GradleDependency,GradlePackageUpdate
+    coreLibraryDesugaring('com.android.tools:desugar_jdk_libs:1.2.2')
     testImplementation('junit:junit:4.13.2')
     androidTestImplementation('androidx.test:runner:1.4.0')
     androidTestImplementation('androidx.test.espresso:espresso-core:3.4.0')
     implementation('androidx.multidex:multidex:2.0.1')
     //kotlin
-    //noinspection GradleDependency
-    //noinspection DifferentStdlibGradleVersion
+    //noinspection GradleDependency,DifferentStdlibGradleVersion
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version")
     //Kotlin反射
-    //noinspection GradleDependency
+    //noinspection GradleDependency,DifferentStdlibGradleVersion
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlin_version")
     //协程
     def coroutines_version = '1.6.4'
@@ -156,10 +147,10 @@ dependencies {
     implementation('com.github.android:renderscript-intrinsics-replacement-toolkit:b6363490c3')
 
     //androidX
-    implementation('androidx.core:core-ktx:1.8.0')
-    implementation('androidx.appcompat:appcompat:1.5.0')
-    implementation('androidx.activity:activity-ktx:1.5.1')
-    implementation('androidx.fragment:fragment-ktx:1.5.2')
+    implementation('androidx.core:core-ktx:1.9.0')
+    implementation('androidx.appcompat:appcompat:1.5.1')
+    implementation('androidx.activity:activity-ktx:1.6.1')
+    implementation('androidx.fragment:fragment-ktx:1.5.4')
     implementation('androidx.preference:preference-ktx:1.2.0')
     implementation('androidx.constraintlayout:constraintlayout:2.1.4')
     implementation('androidx.swiperefreshlayout:swiperefreshlayout:1.1.0')
@@ -167,25 +158,14 @@ dependencies {
     implementation('androidx.webkit:webkit:1.5.0')
 
     //google
-    implementation('com.google.android.material:material:1.6.1')
+    implementation('com.google.android.material:material:1.7.0')
     implementation('com.google.android.flexbox:flexbox:3.0.0')
-    implementation('com.google.code.gson:gson:2.9.1')
+    implementation('com.google.code.gson:gson:2.10')
 
     //lifecycle
     def lifecycle_version = '2.5.1'
     implementation("androidx.lifecycle:lifecycle-common-java8:$lifecycle_version")
-
-    //compose
-    // Integration with activities
-    implementation 'androidx.activity:activity-compose:1.5.1'
-    // Compose Material Design
-    implementation "androidx.compose.material:material:$compose_version"
-    // Animations
-    implementation "androidx.compose.animation:animation:$compose_version"
-    // Tooling support (Previews, etc.)
-    implementation "androidx.compose.ui:ui-tooling:$compose_version"
-    // UI Tests
-    androidTestImplementation "androidx.compose.ui:ui-test-junit4:$compose_version"
+    implementation("androidx.lifecycle:lifecycle-service:$lifecycle_version")
 
     //media
     implementation("androidx.media:media:1.6.0")
@@ -200,8 +180,8 @@ dependencies {
     //room
     implementation("androidx.room:room-runtime:$room_version")
     implementation("androidx.room:room-ktx:$room_version")
-    ksp("androidx.room:room-compiler:$room_version")
-    testImplementation("androidx.room:room-testing:$room_version")
+    kapt("androidx.room:room-compiler:$room_version")
+    androidTestImplementation("androidx.room:room-testing:$room_version")
 
     //liveEventBus
     implementation('io.github.jeremyliao:live-event-bus-x:1.8.0')
@@ -221,9 +201,14 @@ dependencies {
     implementation(fileTree(dir: 'cronetlib', include: ['*.jar', '*.aar']))
 
     //Glide
-    def glideVersion = "4.13.2"
+    def glideVersion = "4.14.2"
     implementation("com.github.bumptech.glide:glide:$glideVersion")
     kapt("com.github.bumptech.glide:compiler:$glideVersion")
+
+    //Svg
+    implementation("com.caverock:androidsvg-aar:1.4")
+    //Glide svg plugin
+    implementation("com.github.qoqa:glide-svg:4.0.2")
 
     //webServer
     def nanoHttpdVersion = "2.3.1"
@@ -237,7 +222,7 @@ dependencies {
     implementation('com.jaredrummler:colorpicker:1.1.0')
 
     //apache
-    implementation('org.apache.commons:commons-text:1.9')
+    implementation('org.apache.commons:commons-text:1.10.0')
 
     //MarkDown
     def markwonVersion = "4.6.2"
@@ -247,11 +232,11 @@ dependencies {
     implementation("io.noties.markwon:html:$markwonVersion")
 
     //转换繁体
-    implementation('com.github.liuyueyi.quick-chinese-transfer:quick-transfer-core:0.2.6')
+    implementation('com.github.liuyueyi.quick-chinese-transfer:quick-transfer-core:0.2.7')
 
     //加解密类库,有些书源使用
-    //noinspection GradleDependency
-    implementation('cn.hutool:hutool-crypto:5.8.1')
+    //noinspection GradleDependency,GradlePackageUpdate
+    implementation('cn.hutool:hutool-crypto:5.8.9')
 
     //firebase, 崩溃统计和性能统计, 会导致共存版本崩溃
     //implementation platform('com.google.firebase:firebase-bom:30.0.1')

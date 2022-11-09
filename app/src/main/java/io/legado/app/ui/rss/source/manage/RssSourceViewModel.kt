@@ -83,7 +83,25 @@ class RssSourceViewModel(application: Application) : BaseViewModel(application) 
         }.onSuccess {
             success.invoke(it)
         }.onError {
-            context.toastOnUi(it.msg)
+            context.toastOnUi(it.stackTraceStr)
+        }
+    }
+
+    fun selectionAddToGroups(sources: List<RssSource>, groups: String) {
+        execute {
+            val array = Array(sources.size) {
+                sources[it].copy().addGroup(groups)
+            }
+            appDb.rssSourceDao.update(*array)
+        }
+    }
+
+    fun selectionRemoveFromGroups(sources: List<RssSource>, groups: String) {
+        execute {
+            val array = Array(sources.size) {
+                sources[it].copy().removeGroup(groups)
+            }
+            appDb.rssSourceDao.update(*array)
         }
     }
 

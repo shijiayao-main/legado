@@ -10,8 +10,13 @@
 @Json: json规则,直接写时以$.开头可省略@Json
 : regex规则,不可省略,只可以用在书籍列表和目录列表
 ```
+* 并发率
+> 并发限制，单位ms，可填写两种格式  
+> `1000` 访问间隔1s  
+> `20/60000` 60s内访问次数20  
+
 * 书源类型: 文件
-> 对于类似知轩藏书提供文件整合下载的网站，可以'在书源详情的下载URL规则获取文件链接，支持多个链接，阅读会自动下载并导入
+> 对于类似知轩藏书提供文件整合下载的网站，可以在书源详情的下载URL规则获取文件链接，支持多个链接，阅读会自动下载并导入
 
 * CookieJar
 > 启用后会自动保存每次返回头中的Set-Cookie中的值，适用于验证码图片一类需要session的网站
@@ -152,5 +157,11 @@ let options = {
 ```
 
 * 购买操作
-> 返回购买链接，可直接填写链接或者JavaScript  
-> 可用变量 book chapter java(不支持AnalyzeRule函数) source
+> 可直接填写链接或者JavaScript，如果执行结果是网络链接将会自动打开浏览器
+
+* 图片解密
+> 适用于图片需要二次解密的情况，直接填写JavaScript，返回解密后的`ByteArray`  
+> 部分变量说明：java（仅支持[js扩展类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/help/JsExtensions.kt)），result为待解密图片的`ByteArray`，src为图片链接
+
+* 封面解密
+> 同图片解密 其中result为待解密封面的`inputStream`

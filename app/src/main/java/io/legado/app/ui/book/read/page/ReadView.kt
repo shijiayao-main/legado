@@ -18,21 +18,26 @@ import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.lib.theme.accentColor
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
+import io.legado.app.ui.book.read.ContentEditDialog
 import io.legado.app.ui.book.read.page.api.DataSource
 import io.legado.app.ui.book.read.page.delegate.*
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
+import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.TextPageFactory
 import io.legado.app.utils.activity
 import io.legado.app.utils.invisible
 import io.legado.app.utils.screenshot
+import io.legado.app.utils.showDialogFragment
 import java.text.BreakIterator
 import java.util.*
 import kotlin.math.abs
 
-
+/**
+ * 阅读视图
+ */
 class ReadView(context: Context, attrs: AttributeSet) :
     FrameLayout(context, attrs),
     DataSource {
@@ -102,6 +107,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
         addView(prevPage)
         nextPage.invisible()
         prevPage.invisible()
+        curPage.markAsMainView()
         if (!isInEditMode) {
             upBg()
             setWillNotDraw(false)
@@ -222,7 +228,9 @@ class ReadView(context: Context, attrs: AttributeSet) :
                 pressDown = false
                 if (!isPageMove) {
                     if (!longPressed && !pressOnTextSelected) {
-                        onSingleTapUp()
+                        if (!curPage.onClick(startX, startY)) {
+                            onSingleTapUp()
+                        }
                         return true
                     }
                 }
@@ -292,18 +300,18 @@ class ReadView(context: Context, attrs: AttributeSet) :
      */
     private fun onLongPress() {
         kotlin.runCatching {
-            curPage.longPress(startX, startY) { relativePos, lineIndex, charIndex ->
+            curPage.longPress(startX, startY) { textPos: TextPos ->
                 isTextSelected = true
                 pressOnTextSelected = true
-                initialTextPos.upData(relativePos, lineIndex, charIndex)
-                val startPos = TextPos(relativePos, lineIndex, charIndex)
-                val endPos = TextPos(relativePos, lineIndex, charIndex)
-                val page = curPage.relativePage(relativePos)
+                initialTextPos.upData(textPos)
+                val startPos = textPos.copy()
+                val endPos = textPos.copy()
+                val page = curPage.relativePage(textPos.relativePagePos)
                 val stringBuilder = StringBuilder()
-                var cIndex = charIndex
-                var lineStart = lineIndex
-                var lineEnd = lineIndex
-                for (index in lineIndex - 1 downTo 0) {
+                var cIndex = textPos.columnIndex
+                var lineStart = textPos.lineIndex
+                var lineEnd = textPos.lineIndex
+                for (index in textPos.lineIndex - 1 downTo 0) {
                     val textLine = page.getLine(index)
                     if (textLine.isParagraphEnd) {
                         break
@@ -313,7 +321,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
                         cIndex += textLine.charSize
                     }
                 }
-                for (index in lineIndex until page.lineSize) {
+                for (index in textPos.lineIndex until page.lineSize) {
                     val textLine = page.getLine(index)
                     stringBuilder.append(textLine.text)
                     lineEnd += 1
@@ -340,10 +348,10 @@ class ReadView(context: Context, attrs: AttributeSet) :
                         for (j in 0 until textLine.charSize) {
                             if (ci == start) {
                                 startPos.lineIndex = index
-                                startPos.charIndex = j
+                                startPos.columnIndex = j
                             } else if (ci == end - 1) {
                                 endPos.lineIndex = index
-                                endPos.charIndex = j
+                                endPos.columnIndex = j
                                 return@run
                             }
                             ci++
@@ -353,12 +361,12 @@ class ReadView(context: Context, attrs: AttributeSet) :
                 curPage.selectStartMoveIndex(
                     startPos.relativePagePos,
                     startPos.lineIndex,
-                    startPos.charIndex
+                    startPos.columnIndex
                 )
                 curPage.selectEndMoveIndex(
                     endPos.relativePagePos,
                     endPos.lineIndex,
-                    endPos.charIndex
+                    endPos.columnIndex
                 )
             }
         }
@@ -412,6 +420,10 @@ class ReadView(context: Context, attrs: AttributeSet) :
             4 -> ReadBook.moveToPrevChapter(upContent = true, toLast = false)
             5 -> ReadAloud.prevParagraph(context)
             6 -> ReadAloud.nextParagraph(context)
+            7 -> callBack.addBookmark()
+            8 -> activity?.showDialogFragment(ContentEditDialog())
+            9 -> callBack.changeReplaceRuleState()
+            10 -> callBack.openChapterList()
         }
     }
 
@@ -419,24 +431,32 @@ class ReadView(context: Context, attrs: AttributeSet) :
      * 选择文本
      */
     private fun selectText(x: Float, y: Float) {
-        curPage.selectText(x, y) { relativePagePos, lineIndex, charIndex ->
-            val compare = initialTextPos.compare(relativePagePos, lineIndex, charIndex)
+        curPage.selectText(x, y) { textPos ->
+            val compare = initialTextPos.compare(textPos)
             when {
                 compare >= 0 -> {
-                    curPage.selectStartMoveIndex(relativePagePos, lineIndex, charIndex)
+                    curPage.selectStartMoveIndex(
+                        textPos.relativePagePos,
+                        textPos.lineIndex,
+                        textPos.columnIndex
+                    )
                     curPage.selectEndMoveIndex(
                         initialTextPos.relativePagePos,
                         initialTextPos.lineIndex,
-                        initialTextPos.charIndex
+                        initialTextPos.columnIndex
                     )
                 }
                 else -> {
                     curPage.selectStartMoveIndex(
                         initialTextPos.relativePagePos,
                         initialTextPos.lineIndex,
-                        initialTextPos.charIndex
+                        initialTextPos.columnIndex
                     )
-                    curPage.selectEndMoveIndex(relativePagePos, lineIndex, charIndex)
+                    curPage.selectEndMoveIndex(
+                        textPos.relativePagePos,
+                        textPos.lineIndex,
+                        textPos.columnIndex
+                    )
                 }
             }
         }
@@ -489,6 +509,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
                 pageDelegate = NoAnimPageDelegate(this)
             }
         }
+        (pageDelegate as? ScrollPageDelegate)?.noAnim = AppConfig.noAnimScrollPage
     }
 
     /**
@@ -577,7 +598,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
         val selectStartPos = curPage.selectStartPos
         var pagePos = selectStartPos.relativePagePos
         val line = selectStartPos.lineIndex
-        val column = selectStartPos.charIndex
+        val column = selectStartPos.columnIndex
         while (pagePos > 0) {
             if (!ReadBook.moveToNextPage()) {
                 ReadBook.moveToNextChapter(false)
@@ -593,6 +614,10 @@ class ReadView(context: Context, attrs: AttributeSet) :
      */
     fun getSelectText(): String {
         return curPage.selectedText
+    }
+
+    fun getCurVisiblePage(): TextPage {
+        return curPage.getCurVisiblePage()
     }
 
     override val currentChapter: TextChapter?
@@ -626,5 +651,8 @@ class ReadView(context: Context, attrs: AttributeSet) :
         fun screenOffTimerStart()
         fun showTextActionMenu()
         fun autoPageStop()
+        fun openChapterList()
+        fun addBookmark()
+        fun changeReplaceRuleState()
     }
 }

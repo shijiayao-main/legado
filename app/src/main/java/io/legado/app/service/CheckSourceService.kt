@@ -6,7 +6,7 @@ import com.script.ScriptException
 import io.legado.app.R
 import io.legado.app.base.BaseService
 import io.legado.app.constant.AppConst
-import io.legado.app.constant.BookType
+import io.legado.app.constant.BookSourceType
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.IntentAction
 import io.legado.app.data.appDb
@@ -16,6 +16,7 @@ import io.legado.app.exception.ContentEmptyException
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.exception.TocEmptyException
 import io.legado.app.help.config.AppConfig
+import io.legado.app.help.source.exploreKinds
 import io.legado.app.model.CheckSource
 import io.legado.app.model.Debug
 import io.legado.app.model.webBook.WebBook
@@ -72,6 +73,7 @@ class CheckSourceService : BaseService() {
             IntentAction.start -> intent.getStringArrayListExtra("selectIds")?.let {
                 check(it)
             }
+
             IntentAction.resume -> upNotification()
             else -> stopSelf()
         }
@@ -154,8 +156,8 @@ class CheckSourceService : BaseService() {
                 }
             }
             //校验发现书籍
-            if (CheckSource.checkDiscovery) {
-                val exs = source.exploreKinds
+            if (CheckSource.checkDiscovery && !source.exploreUrl.isNullOrBlank()) {
+                val exs = source.exploreKinds()
                 var url: String? = null
                 for (ex in exs) {
                     url = ex.url
@@ -212,14 +214,13 @@ class CheckSourceService : BaseService() {
                 }
                 //校验目录
                 if (CheckSource.checkCategory &&
-                    source.bookSourceType != BookType.file
+                    source.bookSourceType != BookSourceType.file
                 ) {
                     val toc = WebBook.getChapterListAwait(source, mBook).getOrThrow()
                     val nextChapterUrl = toc.getOrNull(1)?.url ?: toc.first().url
                     //校验正文
                     if (CheckSource.checkContent) {
                         WebBook.getContentAwait(
-                            this,
                             bookSource = source,
                             book = mBook,
                             bookChapter = toc.first(),

@@ -20,6 +20,7 @@ import io.legado.app.base.adapter.RecyclerAdapter
 import io.legado.app.constant.PreferKey
 import io.legado.app.databinding.ItemTextBinding
 import io.legado.app.databinding.PopupActionMenuBinding
+import io.legado.app.help.config.AppConfig
 import io.legado.app.utils.*
 
 @SuppressLint("RestrictedApi")
@@ -180,6 +181,16 @@ class TextActionMenu(private val context: Context, private val callBack: CallBac
                 }
                 callBack.onMenuActionFinally()
             }
+            holder.itemView.setOnLongClickListener {
+                if (AppConfig.contentSelectSpeakMod == 0) {
+                    AppConfig.contentSelectSpeakMod = 1
+                    context.toastOnUi("切换为从选择的地方开始一直朗读")
+                } else {
+                    AppConfig.contentSelectSpeakMod = 0
+                    context.toastOnUi("切换为朗读选择内容")
+                }
+                true
+            }
         }
     }
 
@@ -222,6 +233,7 @@ class TextActionMenu(private val context: Context, private val callBack: CallBac
 
     @RequiresApi(Build.VERSION_CODES.M)
     private fun getSupportedActivities(): List<ResolveInfo> {
+        @Suppress("DEPRECATION")
         return context.packageManager
             .queryIntentActivities(createProcessTextIntent(), 0)
     }

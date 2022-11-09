@@ -448,7 +448,7 @@
     <!-- source end-->
 
     <!--error string start-->
-    <string name="error_no_source">沒有書源</string>
+    <string name="error_no_source">沒有源</string>
     <string name="error_get_book_info">書籍訊息獲取失敗</string>
     <string name="error_get_content">內容獲取失敗</string>
     <string name="error_get_chapter_list">目錄獲取失敗</string>
@@ -874,7 +874,7 @@
     <string name="anti_alias">抗鋸齒</string>
     <string name="pref_anti_alias_summary">繪製圖片時抗鋸齒</string>
     <string name="upload_url">上傳URL</string>
-    <string name="download_url_rule">下載URL規則</string>
+    <string name="download_url_rule">下载URL规则(downloadUrls)</string>
     <string name="sort_by_respondTime">反應時間排序</string>
     <string name="export_success">匯出成功</string>
     <string name="path">路徑</string>
@@ -1012,4 +1012,51 @@
     <string name="check_selected_interval">选中所选区间</string>
     <string name="show_add_to_shelf_alert_title">返回时提示放入书架</string>
     <string name="show_add_to_shelf_alert_summary">阅读未放入书架的书籍在返回时提示放入书架</string>
+    <string name="review">段评</string>
+    <string name="rule_review_url">段评URL（reviewUrl）</string>
+    <string name="rule_avatar">段评发布者头像（avatarRule）</string>
+    <string name="rule_review_content">段评内容（contentRule）</string>
+    <string name="rule_post_time">段评发布时间（postTimeRule）</string>
+    <string name="rule_review_quote">段评回复URL（reviewQuoteUrl）</string>
+    <string name="review_vote_down">点踩URL（voteDownUrl）</string>
+    <string name="review_vote_up">点赞URL（voteUpUrl）</string>
+    <string name="post_review_url">发送回复URL（postReviewUrl）</string>
+    <string name="post_quote_url">发送回复段评URL（postQuoteUrl）</string>
+    <string name="delete_review_url">删除段评URL（deleteUrl）</string>
+    <string name="tag_explore_enabled">标志:发现已启用</string>
+    <string name="tag_explore_disabled">标志:发现已禁用</string>
+    <string name="show_read_title_addition">展示顶部工具栏附加区域</string>
+    <string name="read_bar_style_follow_page">工具栏样式跟随页面</string>
+    <string name="rule_image_decode">图片解密（imageDecode）</string>
+    <string name="like_source">赞</string>
+    <string name="not_like_source">踩</string>
+    <string name="async_load_image">异步加载图片</string>
+    <string name="ignore_audio_focus_title">忽略音频焦点</string>
+    <string name="ignore_audio_focus_summary">允许与其他应用同时播放音频</string>
+    <string name="refresh_sort">刷新分类</string>
+    <string name="cover_decode_js">封面解密（coverDecodeJs）</string>
+    <string name="net_no_group">网络未分组</string>
+    <string name="local_no_group">本地未分组</string>
+    <string name="parallel_export_book">多线程导出TXT</string>
+    <string name="progress_bar_behavior">进度条行为</string>
+    <string name="source_edit_text_max_line">源编辑框最大行数</string>
+    <string name="source_edit_max_line_summary">%s,设置行数小于屏幕可显示的最大行数可以更方便的滑动到其他的字段进行编辑</string>
+    <string name="restore_last_book_process">是否恢复到跳转前的阅读进度？</string>
+    <string name="search_scope">搜索范围</string>
+    <string name="toggle_search_scope">切换</string>
+    <string name="sure_clear_search_history">是否确认清除所有搜索历史记录</string>
+    <string name="no_anim_scroll_page">禁用滚动点击动画</string>
+    <string name="webdav_device_name">设备名称</string>
+    <string name="web_service_wake_lock">WebService唤醒锁</string>
+    <string name="web_service_wake_lock_summary">开启web服务的时候启用唤醒锁,有些手机开启唤醒锁会被杀后台</string>
+    <string name="read_aloud_wake_lock">朗读服务唤醒锁</string>
+    <string name="read_aloud_wake_lock_summary">开启朗读的时候启用唤醒锁,有些手机开启唤醒锁会被杀后台</string>
+    <string name="audio_play_wake_lock">音频服务唤醒锁</string>
+    <string name="audio_play_wake_lock_summary">播放音频的时候启用唤醒锁,有些手机开启唤醒锁会被杀后台</string>
+    <string name="change_search_scope">切换搜索范围</string>
+    <string name="copy_rule">拷贝规则</string>
+    <string name="paste_rule">粘贴规则</string>
+    <string name="groups_or_source">多分组/书源</string>
+    <string name="replace_state_change">替换(启用/禁用)</string>
+    <string name="show_last_update_time">显示上次更新时间</string>
 </resources>

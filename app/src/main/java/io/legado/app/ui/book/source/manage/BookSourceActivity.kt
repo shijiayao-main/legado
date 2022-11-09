@@ -15,7 +15,6 @@ import com.google.android.material.snackbar.Snackbar
 import io.legado.app.R
 import io.legado.app.base.VMBaseActivity
 import io.legado.app.constant.AppLog
-import io.legado.app.constant.AppPattern
 import io.legado.app.constant.EventBus
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
@@ -28,11 +27,12 @@ import io.legado.app.lib.theme.primaryColor
 import io.legado.app.lib.theme.primaryTextColor
 import io.legado.app.model.CheckSource
 import io.legado.app.model.Debug
-import io.legado.app.service.CheckSourceService
 import io.legado.app.ui.association.ImportBookSourceDialog
-import io.legado.app.ui.book.local.rule.TxtTocRuleActivity
+import io.legado.app.ui.book.search.SearchActivity
+import io.legado.app.ui.book.search.SearchScope
 import io.legado.app.ui.book.source.debug.BookSourceDebugActivity
 import io.legado.app.ui.book.source.edit.BookSourceEditActivity
+import io.legado.app.ui.book.toc.rule.TxtTocRuleActivity
 import io.legado.app.ui.config.CheckSourceConfig
 import io.legado.app.ui.document.HandleFileContract
 import io.legado.app.ui.qrcode.QrCodeResult
@@ -79,11 +79,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
     private val importDoc = registerForActivityResult(HandleFileContract()) {
         it.uri?.let { uri ->
-            try {
-                showDialogFragment(ImportBookSourceDialog(uri.readText(this)))
-            } catch (e: Exception) {
-                toastOnUi("readTextError:${e.localizedMessage}")
-            }
+            showDialogFragment(ImportBookSourceDialog(uri.toString()))
         }
     }
     private val exportDir = registerForActivityResult(HandleFileContract()) {
@@ -307,16 +303,9 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
 
     private fun initLiveDataGroup() {
         launch {
-            val noGroupName = getString(R.string.no_group)
-            appDb.bookSourceDao.flowGroup().conflate().collect {
+            appDb.bookSourceDao.flowGroups().conflate().collect {
                 groups.clear()
-                it.forEach { groupStr ->
-                    groupStr.splitNotBlank(AppPattern.splitGroupRegex).forEach { group ->
-                        if (group != noGroupName) {
-                            groups.add(group)
-                        }
-                    }
-                }
+                groups.addAll(it)
                 upGroupMenu()
             }
         }
@@ -336,7 +325,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
 
     override fun onClickSelectBarMainAction() {
         alert(titleResource = R.string.draw, messageResource = R.string.sure_del) {
-            okButton { viewModel.del(*adapter.selection.toTypedArray()) }
+            yesButton { viewModel.del(*adapter.selection.toTypedArray()) }
             noButton()
         }
     }
@@ -454,9 +443,7 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
 
     private fun upGroupMenu() = groupMenu?.let { menu ->
         menu.removeGroup(R.id.source_group)
-        groups.sortedWith { o1, o2 ->
-            o1.cnCompare(o2)
-        }.map {
+        groups.forEach {
             menu.add(R.id.source_group, Menu.NONE, Menu.NONE, it)
         }
     }
@@ -589,7 +576,13 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
     }
 
     override fun del(bookSource: BookSource) {
-        viewModel.del(bookSource)
+        alert(R.string.draw) {
+            setMessage(getString(R.string.sure_del) + "\n" + bookSource.bookSourceName)
+            noButton()
+            yesButton {
+                viewModel.del(bookSource)
+            }
+        }
     }
 
     override fun update(vararg bookSource: BookSource) {
@@ -612,6 +605,12 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
 
     override fun toBottom(bookSource: BookSource) {
         viewModel.bottomSource(bookSource)
+    }
+
+    override fun searchBook(bookSource: BookSource) {
+        startActivity<SearchActivity> {
+            putExtra("searchScope", SearchScope(bookSource).toString())
+        }
     }
 
     override fun debug(bookSource: BookSource) {
