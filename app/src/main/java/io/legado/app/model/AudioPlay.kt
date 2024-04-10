@@ -116,7 +116,7 @@ object AudioPlay {
         Coroutine.async {
             book?.let { book ->
                 if (book.durChapterIndex > 0) {
-                    book.durChapterIndex = book.durChapterIndex - 1
+                    book.durChapterIndex -= 1
                     book.durChapterPos = 0
                     durChapter = null
                     saveRead()
@@ -131,7 +131,7 @@ object AudioPlay {
     fun next(context: Context) {
         book?.let { book ->
             if (book.durChapterIndex + 1 < book.totalChapterNum) {
-                book.durChapterIndex = book.durChapterIndex + 1
+                book.durChapterIndex += 1
                 book.durChapterPos = 0
                 durChapter = null
                 saveRead()
@@ -167,10 +167,11 @@ object AudioPlay {
             Coroutine.async {
                 appDb.bookChapterDao.getChapter(book.bookUrl, book.durChapterIndex)?.let {
                     book.durChapterTitle = it.getDisplayTitle(
-                        ContentProcessor.get(book.name, book.origin).getTitleReplaceRules()
+                        ContentProcessor.get(book.name, book.origin).getTitleReplaceRules(),
+                        book.getUseReplaceRule()
                     )
                 }
-                book.save()
+                book.update()
             }
         }
     }
@@ -182,7 +183,7 @@ object AudioPlay {
         Coroutine.async {
             durChapter?.let {
                 it.end = audioSize
-                appDb.bookChapterDao.upDate(it)
+                appDb.bookChapterDao.update(it)
             }
         }
     }

@@ -3,11 +3,13 @@ package io.legado.app.model.analyzeRule
 import android.annotation.SuppressLint
 import android.util.Base64
 import androidx.annotation.Keep
+import androidx.media3.common.MediaItem
 import cn.hutool.core.util.HexUtil
 import com.bumptech.glide.load.model.GlideUrl
 import com.script.SimpleBindings
-import io.legado.app.constant.AppConst.SCRIPT_ENGINE
+import com.script.rhino.RhinoScriptEngine
 import io.legado.app.constant.AppConst.UA_NAME
+import io.legado.app.constant.AppPattern
 import io.legado.app.constant.AppPattern.JS_PATTERN
 import io.legado.app.constant.AppPattern.dataUriRegex
 import io.legado.app.data.entities.BaseSource
@@ -17,18 +19,23 @@ import io.legado.app.exception.ConcurrentException
 import io.legado.app.help.CacheManager
 import io.legado.app.help.JsExtensions
 import io.legado.app.help.config.AppConfig
+import io.legado.app.help.exoplayer.ExoPlayerHelper
 import io.legado.app.help.glide.GlideHeaders
 import io.legado.app.help.http.*
+import io.legado.app.help.http.CookieManager.mergeCookies
 import io.legado.app.utils.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import kotlin.math.max
 
 /**
  * Created by GKF on 2018/1/24.
@@ -47,6 +54,7 @@ class AnalyzeUrl(
     private val source: BaseSource? = null,
     private val ruleData: RuleDataInterface? = null,
     private val chapter: BookChapter? = null,
+    private val readTimeout: Long? = null,
     headerMapF: Map<String, String>? = null,
 ) : JsExtensions {
     companion object {
@@ -74,6 +82,11 @@ class AnalyzeUrl(
     private var useWebView: Boolean = false
     private var webJs: String? = null
     private val enabledCookieJar = source?.enabledCookieJar ?: false
+    private val domain: String
+
+    // 服务器ID
+    var serverID: Long? = null
+        private set
 
     init {
         val urlMatcher = paramPattern.matcher(baseUrl)
@@ -86,6 +99,7 @@ class AnalyzeUrl(
             }
         }
         initUrl()
+        domain = NetworkUtils.getSubDomain(source?.getKey() ?: url)
     }
 
     /**
@@ -106,29 +120,27 @@ class AnalyzeUrl(
      */
     private fun analyzeJs() {
         var start = 0
-        var tmp: String
         val jsMatcher = JS_PATTERN.matcher(ruleUrl)
-        var hasRule = true
+        var result = ruleUrl
         while (jsMatcher.find()) {
             if (jsMatcher.start() > start) {
-                tmp =
-                    ruleUrl.substring(start, jsMatcher.start()).trim { it <= ' ' }
-                if (tmp.isNotEmpty()) {
-                    ruleUrl = tmp.replace("@result", ruleUrl)
+                ruleUrl.substring(start, jsMatcher.start()).trim().let {
+                    if (it.isNotEmpty()) {
+                        result = it.replace("@result", result)
+                    }
                 }
             }
-            ruleUrl = evalJS(jsMatcher.group(2) ?: jsMatcher.group(1), ruleUrl) as String
+            result = evalJS(jsMatcher.group(2) ?: jsMatcher.group(1), result).toString()
             start = jsMatcher.end()
-            if (jsMatcher.group(0)!!.startsWith("@js:", true)) {
-                hasRule = false
+        }
+        if (ruleUrl.length > start) {
+            ruleUrl.substring(start).trim().let {
+                if (it.isNotEmpty()) {
+                    result = it.replace("@result", result)
+                }
             }
         }
-        if (ruleUrl.length > start && hasRule) {
-            tmp = ruleUrl.substring(start).trim { it <= ' ' }
-            if (tmp.isNotEmpty()) {
-                ruleUrl = tmp.replace("@result", ruleUrl)
-            }
-        }
+        ruleUrl = result
     }
 
     /**
@@ -197,6 +209,7 @@ class AnalyzeUrl(
                             url = it
                         }
                     }
+                    serverID = option.getServerID()
                 }
         }
         urlNoQuery = url
@@ -208,6 +221,7 @@ class AnalyzeUrl(
                     urlNoQuery = url.substring(0, pos)
                 }
             }
+
             RequestMethod.POST -> body?.let {
                 if (!it.isJson() && !it.isXml() && headerMap["Content-Type"].isNullOrEmpty()) {
                     analyzeFields(it)
@@ -259,7 +273,12 @@ class AnalyzeUrl(
         bindings["book"] = ruleData as? Book
         bindings["source"] = source
         bindings["result"] = result
-        return SCRIPT_ENGINE.eval(jsStr, bindings)
+        val context = RhinoScriptEngine.getScriptContext(bindings)
+        val scope = RhinoScriptEngine.getRuntimeScope(context)
+        source?.getShareScope()?.let {
+            scope.prototype = it
+        }
+        return RhinoScriptEngine.eval(jsStr, scope)
     }
 
     fun put(key: String, value: String): String {
@@ -273,12 +292,13 @@ class AnalyzeUrl(
             "bookName" -> (ruleData as? Book)?.let {
                 return it.name
             }
+
             "title" -> chapter?.let {
                 return it.title
             }
         }
-        return chapter?.getVariable(key)
-            ?: ruleData?.getVariable(key)
+        return chapter?.getVariable(key)?.takeIf { it.isNotEmpty() }
+            ?: ruleData?.getVariable(key)?.takeIf { it.isNotEmpty() }
             ?: ""
     }
 
@@ -329,7 +349,7 @@ class AnalyzeUrl(
                     if (fetchRecord.frequency > cs.toInt()) {
                         return@synchronized (nextTime - System.currentTimeMillis()).toInt()
                     } else {
-                        fetchRecord.frequency = fetchRecord.frequency + 1
+                        fetchRecord.frequency += 1
                         return@synchronized 0
                     }
                 }
@@ -338,7 +358,10 @@ class AnalyzeUrl(
             }
         }
         if (waitTime > 0) {
-            throw ConcurrentException("根据并发率还需等待${waitTime}毫秒才可以访问", waitTime = waitTime)
+            throw ConcurrentException(
+                "根据并发率还需等待${waitTime}毫秒才可以访问",
+                waitTime = waitTime
+            )
         }
         return fetchRecord
     }
@@ -349,7 +372,20 @@ class AnalyzeUrl(
     private fun fetchEnd(concurrentRecord: ConcurrentRecord?) {
         if (concurrentRecord != null && !concurrentRecord.isConcurrent) {
             synchronized(concurrentRecord) {
-                concurrentRecord.frequency = concurrentRecord.frequency - 1
+                concurrentRecord.frequency -= 1
+            }
+        }
+    }
+
+    /**
+     * 获取并发记录，若处于并发限制状态下则会等待
+     */
+    private suspend fun getConcurrentRecord(): ConcurrentRecord? {
+        while (true) {
+            try {
+                return fetchStart()
+            } catch (e: ConcurrentException) {
+                delay(e.waitTime.toLong())
             }
         }
     }
@@ -357,7 +393,6 @@ class AnalyzeUrl(
     /**
      * 访问网站,返回StrResponse
      */
-    @Throws(ConcurrentException::class)
     suspend fun getStrResponseAwait(
         jsStr: String? = null,
         sourceRegex: String? = null,
@@ -366,14 +401,14 @@ class AnalyzeUrl(
         if (type != null) {
             return StrResponse(url, HexUtil.encodeHexStr(getByteArrayAwait()))
         }
-        val concurrentRecord = fetchStart()
+        val concurrentRecord = getConcurrentRecord()
         try {
-            setCookie(source?.getKey())
+            setCookie()
             val strResponse: StrResponse
             if (this.useWebView && useWebView) {
                 strResponse = when (method) {
                     RequestMethod.POST -> {
-                        val res = getProxyClient(proxy).newCallStrResponse(retry) {
+                        val res = getClient().newCallStrResponse(retry) {
                             addHeaders(headerMap)
                             url(urlNoQuery)
                             if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
@@ -391,6 +426,7 @@ class AnalyzeUrl(
                             headerMap = headerMap
                         ).getStrResponse()
                     }
+
                     else -> BackstageWebView(
                         url = url,
                         tag = source?.getKey(),
@@ -400,7 +436,7 @@ class AnalyzeUrl(
                     ).getStrResponse()
                 }
             } else {
-                strResponse = getProxyClient(proxy).newCallStrResponse(retry) {
+                strResponse = getClient().newCallStrResponse(retry) {
                     addHeaders(headerMap)
                     when (method) {
                         RequestMethod.POST -> {
@@ -416,36 +452,25 @@ class AnalyzeUrl(
                                 postJson(body)
                             }
                         }
+
                         else -> get(urlNoQuery, fieldMap, true)
                     }
+                }.let {
+                    val isXml = it.raw.body?.contentType()?.toString()
+                        ?.matches(AppPattern.xmlContentTypeRegex) == true
+                    if (isXml && it.body?.trim()?.startsWith("<?xml", true) == false) {
+                        StrResponse(it.raw, "<?xml version=\"1.0\"?>" + it.body)
+                    } else it
                 }
             }
             return strResponse
         } finally {
+            //saveCookie()
             fetchEnd(concurrentRecord)
         }
     }
 
-    /**
-     * 访问网站,返回StrResponse
-     * 并发异常自动重试
-     */
-    suspend fun getStrResponseConcurrentAwait(
-        jsStr: String? = null,
-        sourceRegex: String? = null,
-        useWebView: Boolean = true,
-    ): StrResponse {
-        while (true) {
-            try {
-                return getStrResponseAwait(jsStr, sourceRegex, useWebView)
-            } catch (e: ConcurrentException) {
-                delay(e.waitTime.toLong())
-            }
-        }
-    }
-
     @JvmOverloads
-    @Throws(ConcurrentException::class)
     fun getStrResponse(
         jsStr: String? = null,
         sourceRegex: String? = null,
@@ -459,13 +484,11 @@ class AnalyzeUrl(
     /**
      * 访问网站,返回Response
      */
-    @Throws(ConcurrentException::class)
     suspend fun getResponseAwait(): Response {
-        val concurrentRecord = fetchStart()
+        val concurrentRecord = getConcurrentRecord()
         try {
-            setCookie(source?.getKey())
-            @Suppress("BlockingMethodInNonBlockingContext")
-            val response = getProxyClient(proxy).newCallResponse(retry) {
+            setCookie()
+            val response = getClient().newCallResponse(retry) {
                 addHeaders(headerMap)
                 when (method) {
                     RequestMethod.POST -> {
@@ -481,28 +504,36 @@ class AnalyzeUrl(
                             postJson(body)
                         }
                     }
+
                     else -> get(urlNoQuery, fieldMap, true)
                 }
             }
             return response
         } finally {
+            //saveCookie()
             fetchEnd(concurrentRecord)
         }
     }
 
-    @Throws(ConcurrentException::class)
+    private fun getClient(): OkHttpClient {
+        val client = getProxyClient(proxy)
+        if (readTimeout == null) {
+            return client
+        }
+        return client.newBuilder()
+            .readTimeout(readTimeout, TimeUnit.MILLISECONDS)
+            .callTimeout(max(60 * 1000L, readTimeout * 2), TimeUnit.MILLISECONDS)
+            .build()
+    }
+
     fun getResponse(): Response {
         return runBlocking {
             getResponseAwait()
         }
     }
 
-    @Suppress("UnnecessaryVariable")
-    @Throws(ConcurrentException::class)
     private fun getByteArrayIfDataUri(): ByteArray? {
-        @Suppress("RegExpRedundantEscape")
         val dataUriFindResult = dataUriRegex.find(urlNoQuery)
-        @Suppress("BlockingMethodInNonBlockingContext")
         if (dataUriFindResult != null) {
             val dataUriBase64 = dataUriFindResult.groupValues[1]
             val byteArray = Base64.decode(dataUriBase64, Base64.DEFAULT)
@@ -514,8 +545,6 @@ class AnalyzeUrl(
     /**
      * 访问网站,返回ByteArray
      */
-    @Suppress("UnnecessaryVariable", "LiftReturnOrAssignment")
-    @Throws(ConcurrentException::class)
     suspend fun getByteArrayAwait(): ByteArray {
         getByteArrayIfDataUri()?.let {
             return it
@@ -532,8 +561,6 @@ class AnalyzeUrl(
     /**
      * 访问网站,返回InputStream
      */
-    @Suppress("LiftReturnOrAssignment")
-    @Throws(ConcurrentException::class)
     suspend fun getInputStreamAwait(): InputStream {
         getByteArrayIfDataUri()?.let {
             return ByteArrayInputStream(it)
@@ -541,7 +568,6 @@ class AnalyzeUrl(
         return getResponseAwait().body!!.byteStream()
     }
 
-    @Throws(ConcurrentException::class)
     fun getInputStream(): InputStream {
         return runBlocking {
             getInputStreamAwait()
@@ -569,27 +595,43 @@ class AnalyzeUrl(
     }
 
     /**
-     *设置cookie 优先级
-     * urlOption临时cookie > 数据库cookie = okhttp CookieJar保存在内存中的cookie
-     *@param tag 书源url 缺省为传入的url
+     * 设置cookie 优先级
+     * urlOption临时cookie > 数据库cookie
      */
-    private fun setCookie(tag: String?) {
-        val domain = NetworkUtils.getSubDomain(tag ?: url)
+    private fun setCookie() {
+        val cookie = kotlin.run {
+            /* 每次调用getXX cookieJar已经保存过了
+            if (enabledCookieJar) {
+                val key = "${domain}_cookieJar"
+                CacheManager.getFromMemory(key)?.let {
+                    return@run it
+                }
+            }
+            */
+            CookieStore.getCookie(domain)
+        }
+        if (cookie.isNotEmpty()) {
+            mergeCookies(cookie, headerMap["Cookie"])?.let {
+                headerMap.put("Cookie", it)
+            }
+        }
+        if (enabledCookieJar) {
+            headerMap[CookieManager.cookieJarHeader] = "1"
+        }
+    }
+
+    /**
+     * 保存cookieJar中的cookie在访问结束时就保存,不等到下次访问
+     */
+    private fun saveCookie() {
         //书源启用保存cookie时 添加内存中的cookie到数据库
         if (enabledCookieJar) {
             val key = "${domain}_cookieJar"
             CacheManager.getFromMemory(key)?.let {
-                CookieStore.replaceCookie(domain, it)
-                CacheManager.deleteMemory(key)
-            }
-        }
-        val cookie = CookieStore.getCookie(domain)
-        if (cookie.isNotEmpty()) {
-            val cookieMap = CookieStore.cookieToMap(cookie)
-            val customCookieMap = CookieStore.cookieToMap(headerMap["Cookie"] ?: "")
-            cookieMap.putAll(customCookieMap)
-            CookieStore.mapToCookie(cookieMap)?.let {
-                headerMap.put("Cookie", it)
+                if (it is String) {
+                    CookieStore.replaceCookie(domain, it)
+                    CacheManager.deleteMemory(key)
+                }
             }
         }
     }
@@ -598,8 +640,13 @@ class AnalyzeUrl(
      *获取处理过阅读定义的urlOption和cookie的GlideUrl
      */
     fun getGlideUrl(): GlideUrl {
-        setCookie(source?.getKey())
+        setCookie()
         return GlideUrl(url, GlideHeaders(headerMap))
+    }
+
+    fun getMediaItem(): MediaItem {
+        setCookie()
+        return ExoPlayerHelper.createMediaItem(url, headerMap)
     }
 
     fun getUserAgent(): String {
@@ -619,11 +666,35 @@ class AnalyzeUrl(
         private var charset: String? = null,
         private var headers: Any? = null,
         private var body: Any? = null,
+        /**
+         * 源Url
+         **/
+        private var origin: String? = null,
+        /**
+         * 重试次数
+         **/
         private var retry: Int? = null,
+        /**
+         * 类型
+         **/
         private var type: String? = null,
+        /**
+         * 是否使用webView
+         **/
         private var webView: Any? = null,
+        /**
+         * webView中执行的js
+         **/
         private var webJs: String? = null,
+        /**
+         * 解析完url参数时执行的js
+         * 执行结果会赋值给url
+         */
         private var js: String? = null,
+        /**
+         * 服务器id
+         */
+        private var serverID: Long? = null
     ) {
         fun setMethod(value: String?) {
             method = if (value.isNullOrBlank()) null else value
@@ -639,6 +710,14 @@ class AnalyzeUrl(
 
         fun getCharset(): String? {
             return charset
+        }
+
+        fun setOrigin(value: String?) {
+            origin = if (value.isNullOrBlank()) null else value
+        }
+
+        fun getOrigin(): String? {
+            return origin
         }
 
         fun setRetry(value: String?) {
@@ -713,6 +792,14 @@ class AnalyzeUrl(
 
         fun getJs(): String? {
             return js
+        }
+
+        fun setServerID(value: String?) {
+            serverID = if (value.isNullOrBlank()) null else value.toLong()
+        }
+
+        fun getServerID(): Long? {
+            return serverID
         }
     }
 

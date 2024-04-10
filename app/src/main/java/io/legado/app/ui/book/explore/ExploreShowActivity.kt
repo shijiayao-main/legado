@@ -15,6 +15,9 @@ import io.legado.app.ui.widget.recycler.VerticalDivider
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 
+/**
+ * 发现列表
+ */
 class ExploreShowActivity : VMBaseActivity<ActivityExploreShowBinding, ExploreShowViewModel>(),
     ExploreShowAdapter.CallBack {
     override val binding by viewBinding(ActivityExploreShowBinding::inflate)
@@ -84,7 +87,7 @@ class ExploreShowActivity : VMBaseActivity<ActivityExploreShowBinding, ExploreSh
     }
 
     override fun isInBookshelf(name: String, author: String): Boolean {
-        return viewModel.bookshelf.contains("$name-$author")
+        return viewModel.isInBookShelf(name, author)
     }
 
     override fun showBookInfo(book: Book) {

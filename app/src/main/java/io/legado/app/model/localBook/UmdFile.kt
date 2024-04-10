@@ -5,8 +5,6 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.utils.*
 import me.ag2s.umdlib.domain.UmdBook
 import me.ag2s.umdlib.umd.UmdReader
-import splitties.init.appCtx
-
 import java.io.File
 import java.io.InputStream
 
@@ -64,11 +62,7 @@ class UmdFile(var book: Book) {
         try {
             umdBook?.let {
                 if (book.coverUrl.isNullOrEmpty()) {
-                    book.coverUrl = FileUtils.getPath(
-                        appCtx.externalFiles,
-                        "covers",
-                        "${MD5Utils.md5Encode16(book.bookUrl)}.jpg"
-                    )
+                    book.coverUrl = LocalBook.getCoverPath(book)
                 }
                 if (!File(book.coverUrl!!).exists()) {
                     FileUtils.writeBytes(book.coverUrl!!, it.cover.coverData)

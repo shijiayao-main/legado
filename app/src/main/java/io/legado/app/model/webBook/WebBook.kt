@@ -14,9 +14,11 @@ import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.analyzeRule.RuleData
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 @Suppress("MemberVisibilityCanBePrivate")
 object WebBook {
@@ -30,8 +32,10 @@ object WebBook {
         key: String,
         page: Int? = 1,
         context: CoroutineContext = Dispatchers.IO,
+        start: CoroutineStart = CoroutineStart.DEFAULT,
+        executeContext: CoroutineContext = Dispatchers.Main,
     ): Coroutine<ArrayList<SearchBook>> {
-        return Coroutine.async(scope, context) {
+        return Coroutine.async(scope, context, start = start, executeContext = executeContext) {
             searchBookAwait(bookSource, key, page)
         }
     }
@@ -41,35 +45,36 @@ object WebBook {
         key: String,
         page: Int? = 1,
     ): ArrayList<SearchBook> {
-        val ruleData = RuleData()
-        bookSource.searchUrl?.let { searchUrl ->
-            val analyzeUrl = AnalyzeUrl(
-                mUrl = searchUrl,
-                key = key,
-                page = page,
-                baseUrl = bookSource.bookSourceUrl,
-                headerMapF = bookSource.getHeaderMap(true),
-                source = bookSource,
-                ruleData = ruleData,
-            )
-            var res = analyzeUrl.getStrResponseAwait()
-            //检测书源是否已登录
-            bookSource.loginCheckJs?.let { checkJs ->
-                if (checkJs.isNotBlank()) {
-                    res = analyzeUrl.evalJS(checkJs, res) as StrResponse
-                }
-            }
-            checkRedirect(bookSource, res)
-            return BookList.analyzeBookList(
-                bookSource = bookSource,
-                ruleData = ruleData,
-                analyzeUrl = analyzeUrl,
-                baseUrl = res.url,
-                body = res.body,
-                isSearch = true
-            )
+        val searchUrl = bookSource.searchUrl
+        if (searchUrl.isNullOrBlank()) {
+            throw NoStackTraceException("搜索url不能为空")
         }
-        return arrayListOf()
+        val ruleData = RuleData()
+        val analyzeUrl = AnalyzeUrl(
+            mUrl = searchUrl,
+            key = key,
+            page = page,
+            baseUrl = bookSource.bookSourceUrl,
+            headerMapF = bookSource.getHeaderMap(true),
+            source = bookSource,
+            ruleData = ruleData,
+        )
+        var res = analyzeUrl.getStrResponseAwait()
+        //检测书源是否已登录
+        bookSource.loginCheckJs?.let { checkJs ->
+            if (checkJs.isNotBlank()) {
+                res = analyzeUrl.evalJS(checkJs, res) as StrResponse
+            }
+        }
+        checkRedirect(bookSource, res)
+        return BookList.analyzeBookList(
+            bookSource = bookSource,
+            ruleData = ruleData,
+            analyzeUrl = analyzeUrl,
+            baseUrl = res.url,
+            body = res.body,
+            isSearch = true
+        )
     }
 
     /**
@@ -192,12 +197,14 @@ object WebBook {
         }
     }
 
-    fun runPreUpdateJs(bookSource: BookSource, book: Book): Result<Boolean> {
+    suspend fun runPreUpdateJs(bookSource: BookSource, book: Book): Result<Boolean> {
         return kotlin.runCatching {
             val preUpdateJs = bookSource.ruleToc?.preUpdateJs
             if (!preUpdateJs.isNullOrBlank()) {
                 kotlin.runCatching {
-                    AnalyzeRule(book, bookSource).evalJS(preUpdateJs)
+                    AnalyzeRule(book, bookSource)
+                        .setCoroutineContext(coroutineContext)
+                        .evalJS(preUpdateJs)
                 }.onFailure {
                     AppLog.put("执行preUpdateJs规则失败 书源:${bookSource.bookSourceName}", it)
                     throw it
@@ -263,9 +270,11 @@ object WebBook {
         bookChapter: BookChapter,
         nextChapterUrl: String? = null,
         needSave: Boolean = true,
-        context: CoroutineContext = Dispatchers.IO
+        context: CoroutineContext = Dispatchers.IO,
+        start: CoroutineStart = CoroutineStart.DEFAULT,
+        executeContext: CoroutineContext = Dispatchers.Main,
     ): Coroutine<String> {
-        return Coroutine.async(scope, context) {
+        return Coroutine.async(scope, context, start = start, executeContext = executeContext) {
             getContentAwait(bookSource, book, bookChapter, nextChapterUrl, needSave)
         }
     }
@@ -327,13 +336,6 @@ object WebBook {
                 needSave = needSave
             )
         }
-    }
-
-    /**
-     * 获取段评
-     */
-    fun getReview() {
-        // TODO
     }
 
     /**

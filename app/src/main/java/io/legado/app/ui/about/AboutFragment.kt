@@ -10,32 +10,30 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import io.legado.app.R
 import io.legado.app.constant.AppConst.appInfo
+import io.legado.app.constant.AppLog
 import io.legado.app.help.AppUpdate
+import io.legado.app.help.CrashHandler
 import io.legado.app.help.config.AppConfig
-import io.legado.app.lib.dialogs.alert
-import io.legado.app.lib.dialogs.selector
+import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.dialog.WaitDialog
-import io.legado.app.utils.*
+import io.legado.app.utils.FileDoc
+import io.legado.app.utils.createFileIfNotExist
+import io.legado.app.utils.createFolderIfNotExist
+import io.legado.app.utils.delete
+import io.legado.app.utils.find
+import io.legado.app.utils.list
+import io.legado.app.utils.openInputStream
+import io.legado.app.utils.openOutputStream
+import io.legado.app.utils.openUrl
+import io.legado.app.utils.sendMail
+import io.legado.app.utils.sendToClip
+import io.legado.app.utils.showDialogFragment
+import io.legado.app.utils.toastOnUi
 import splitties.init.appCtx
+import java.io.File
 
 class AboutFragment : PreferenceFragmentCompat() {
-
-    private val qqGroups = linkedMapOf(
-        Pair("(QQ群1)805192012", "6GlFKjLeIk5RhQnR3PNVDaKB6j10royo"),
-        Pair("(QQ群2)773736122", "5Bm5w6OgLupXnICbYvbgzpPUgf0UlsJF"),
-        Pair("(QQ群3)981838750", "g_Sgmp2nQPKqcZQ5qPcKLHziwX_mpps9"),
-        Pair("(QQ群4)256929088", "czEJPLDnT4Pd9SKQ6RoRVzKhDxLchZrO"),
-        Pair("(QQ群5)811843556", "zKZ2UYGZ7o5CzcA6ylxzlqi21si_iqaX"),
-        Pair("(QQ群6)870270970", "FeCF8iSxfQbe90HPvGsvcqs5P5oSeY5n"),
-        Pair("(QQ群7)15987187", "S2g2TMD0LGd3sefUADd1AbyPEW2o2XfC"),
-        Pair("(QQ群8)1079926194", "gg2qFH8q9IPFaCHV3H7CqCN-YljvazE1"),
-        Pair("(QQ群9)892108780", "Ci_O3aysKjEBfplOWeCud-rxl71TjU2Q"),
-        Pair("(QQ群10)812720266", "oW9ksY0sAWUEq0hfM5irN5aOdvKVgMEE")
-    )
-
-    private val qqChannel =
-        "https://qun.qq.com/qqweb/qunpro/share?_wv=3&_wwv=128&inviteCode=25d870&from=246610&biz=ka"
 
     private val waitDialog by lazy {
         WaitDialog(requireContext())
@@ -45,9 +43,6 @@ class AboutFragment : PreferenceFragmentCompat() {
         addPreferencesFromResource(R.xml.about)
         findPreference<Preference>("update_log")?.summary =
             "${getString(R.string.version)} ${appInfo.versionName}"
-        if (AppConfig.isGooglePlay) {
-            preferenceScreen.removePreferenceRecursively("check_update")
-        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -58,20 +53,16 @@ class AboutFragment : PreferenceFragmentCompat() {
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
         when (preference.key) {
             "contributors" -> openUrl(R.string.contributors_url)
-            "update_log" -> showMdFile("updateLog.md")
+            "update_log" -> showMdFile(getString(R.string.update_log), "updateLog.md")
             "check_update" -> checkUpdate()
             "mail" -> requireContext().sendMail(getString(R.string.email))
-            "sourceRuleSummary" -> openUrl(R.string.source_rule_url)
-            "git" -> openUrl(R.string.this_github_url)
-            "home_page" -> openUrl(R.string.home_page_url)
-            "license" -> openUrl(R.string.license_url)
-            "disclaimer" -> showMdFile("disclaimer.md")
-            "qq" -> showQqGroups()
+            "license" -> showMdFile(getString(R.string.license), "LICENSE.md")
+            "disclaimer" -> showMdFile(getString(R.string.disclaimer), "disclaimer.md")
+            "privacyPolicy" -> showMdFile(getString(R.string.privacy_policy), "privacyPolicy.md")
             "gzGzh" -> requireContext().sendToClip(getString(R.string.legado_gzh))
-            "crashLog" -> showCrashLogs()
-            "qqChannel" -> context?.openUrl(qqChannel)
-            "tg" -> openUrl(R.string.tg_url)
-            "discord" -> openUrl(R.string.discord_url)
+            "crashLog" -> showDialogFragment<CrashLogsDialog>()
+            "saveLog" -> saveLog()
+            "createHeapDump" -> createHeapDump()
         }
         return super.onPreferenceTreeClick(preference)
     }
@@ -84,9 +75,9 @@ class AboutFragment : PreferenceFragmentCompat() {
     /**
      * 显示md文件
      */
-    private fun showMdFile(FileName: String) {
-        val mdText = String(requireContext().assets.open(FileName).readBytes())
-        showDialogFragment(TextDialog(mdText, TextDialog.Mode.MD))
+    private fun showMdFile(title: String, fileName: String) {
+        val mdText = String(requireContext().assets.open(fileName).readBytes())
+        showDialogFragment(TextDialog(title, mdText, TextDialog.Mode.MD))
     }
 
     /**
@@ -94,36 +85,20 @@ class AboutFragment : PreferenceFragmentCompat() {
      */
     private fun checkUpdate() {
         waitDialog.show()
-        AppUpdate.checkFromGitHub(lifecycleScope)
-            .onSuccess {
-                showDialogFragment(
-                    UpdateDialog(it)
-                )
-            }.onError {
-                appCtx.toastOnUi("${getString(R.string.check_update)}\n${it.localizedMessage}")
-            }.onFinally {
-                waitDialog.hide()
-            }
-    }
-
-    /**
-     * 显示qq群
-     */
-    private fun showQqGroups() {
-        alert(titleResource = R.string.join_qq_group) {
-            val names = arrayListOf<String>()
-            qqGroups.forEach {
-                names.add(it.key)
-            }
-            items(names) { _, index ->
-                qqGroups[names[index]]?.let {
-                    if (!joinQQGroup(it)) {
-                        requireContext().sendToClip(it)
-                    }
+        AppUpdate.gitHubUpdate?.run {
+            check(lifecycleScope)
+                .onSuccess {
+                    showDialogFragment(
+                        UpdateDialog(it)
+                    )
+                }.onError {
+                    appCtx.toastOnUi("${getString(R.string.check_update)}\n${it.localizedMessage}")
+                }.onFinally {
+                    waitDialog.dismiss()
                 }
-            }
         }
     }
+
 
     /**
      * 加入qq群
@@ -143,19 +118,70 @@ class AboutFragment : PreferenceFragmentCompat() {
         return false
     }
 
-    private fun showCrashLogs() {
-        context?.externalCacheDir?.let { exCacheDir ->
-            val crashDir = exCacheDir.getFile("crash")
-            val crashLogs = crashDir.listFiles()
-            val crashLogNames = arrayListOf<String>()
-            crashLogs?.forEach {
-                crashLogNames.add(it.name)
+    private fun saveLog() {
+        Coroutine.async {
+            val backupPath = AppConfig.backupPath ?: let {
+                appCtx.toastOnUi("未设置备份目录")
+                return@async
             }
-            context?.selector(R.string.crash_log, crashLogNames) { _, select ->
-                crashLogs?.getOrNull(select)?.let { logFile ->
-                    showDialogFragment(TextDialog(logFile.readText()))
+            val doc = FileDoc.fromUri(Uri.parse(backupPath), true)
+            val files = FileDoc.fromFile(File(appCtx.externalCacheDir, "logs")).list()
+            if (!files.isNullOrEmpty()) {
+                doc.find("logs")?.delete()
+                val logsDoc = doc.createFolderIfNotExist("logs")
+                files.forEach { file ->
+                    file.openInputStream().getOrNull()?.use { input ->
+                        logsDoc.createFileIfNotExist(file.name).openOutputStream().getOrNull()
+                            ?.use {
+                                input.copyTo(it)
+                            }
+                    }
                 }
             }
+            val heapFile = FileDoc.fromFile(File(appCtx.externalCacheDir, "heapDump")).list()
+                ?.firstOrNull()
+            if (heapFile != null) {
+                doc.find("heapDump")?.delete()
+                val heapDumpDoc = doc.createFolderIfNotExist("heapDump")
+                heapFile.openInputStream().getOrNull()?.use { input ->
+                    heapDumpDoc.createFileIfNotExist(heapFile.name).openOutputStream().getOrNull()
+                        ?.use {
+                            input.copyTo(it)
+                        }
+                }
+            }
+            appCtx.toastOnUi("已保存至备份目录")
+        }.onError {
+            AppLog.put("保存日志出错\n${it.localizedMessage}", it, true)
+        }
+    }
+
+    private fun createHeapDump() {
+        Coroutine.async {
+            val backupPath = AppConfig.backupPath ?: let {
+                appCtx.toastOnUi("未设置备份目录")
+                return@async
+            }
+            appCtx.toastOnUi("开始创建堆转储")
+            System.gc()
+            CrashHandler.doHeapDump()
+            val heapFile = FileDoc.fromFile(File(appCtx.externalCacheDir, "heapDump")).list()
+                ?.firstOrNull() ?: let {
+                appCtx.toastOnUi("未找到堆转储文件")
+                return@async
+            }
+            val doc = FileDoc.fromUri(Uri.parse(backupPath), true)
+            doc.find("heapDump")?.delete()
+            val heapDumpDoc = doc.createFolderIfNotExist("heapDump")
+            heapFile.openInputStream().getOrNull()?.use { input ->
+                heapDumpDoc.createFileIfNotExist(heapFile.name).openOutputStream().getOrNull()
+                    ?.use {
+                        input.copyTo(it)
+                    }
+            }
+            appCtx.toastOnUi("已保存至备份目录")
+        }.onError {
+            AppLog.put("保存堆转储失败\n${it.localizedMessage}", it)
         }
     }
 

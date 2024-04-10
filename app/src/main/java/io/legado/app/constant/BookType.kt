@@ -6,6 +6,7 @@ import androidx.annotation.IntDef
  * 以二进制位来区分,可能一本书籍包含多个类型,每一位代表一个类型,数值为2的n次方
  * 以二进制位来区分,数据库查询更高效, 数值>=8和老版本类型区分开
  */
+@Suppress("ConstPropertyName")
 object BookType {
     /**
      * 8 文本
@@ -37,10 +38,14 @@ object BookType {
      */
     const val local = 0b100000000
 
+    /**
+     * 512 压缩包 表明书籍文件是从压缩包内解压来的
+     */
+    const val archive = 0b1000000000
 
     @Target(AnnotationTarget.VALUE_PARAMETER)
     @Retention(AnnotationRetention.SOURCE)
-    @IntDef(text, updateError, audio, image, webFile, local)
+    @IntDef(text, updateError, audio, image, webFile, local, archive)
     annotation class Type
 
 

@@ -45,10 +45,6 @@ object BackupConfig {
         PreferKey.backupPath,
         PreferKey.defaultBookTreeUri,
         PreferKey.webDavDeviceName,
-        PreferKey.webDavUrl,
-        PreferKey.webDavDir,
-        PreferKey.webDavAccount,
-        PreferKey.webDavPassword,
         PreferKey.launcherIcon,
         PreferKey.bitmapCacheSize,
         PreferKey.webServiceWakeLock,
@@ -62,7 +58,16 @@ object BackupConfig {
         PreferKey.shareLayout,
         PreferKey.hideStatusBar,
         PreferKey.hideNavigationBar,
-        PreferKey.autoReadSpeed
+        PreferKey.autoReadSpeed,
+        PreferKey.clickActionTL,
+        PreferKey.clickActionTC,
+        PreferKey.clickActionTR,
+        PreferKey.clickActionML,
+        PreferKey.clickActionMC,
+        PreferKey.clickActionMR,
+        PreferKey.clickActionBL,
+        PreferKey.clickActionBC,
+        PreferKey.clickActionBR
     )
 
 

@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.view.LayoutInflater
 import android.widget.FrameLayout
+import androidx.core.content.ContextCompat
 import androidx.core.view.isGone
 import androidx.core.view.isInvisible
+import io.legado.app.R
 import io.legado.app.constant.AppConst.timeFormat
 import io.legado.app.data.entities.Bookmark
 import io.legado.app.databinding.ViewBookPageBinding
@@ -13,16 +15,18 @@ import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.help.config.ReadTipConfig
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.book.read.ReadBookActivity
+import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.widget.BatteryView
 import io.legado.app.utils.activity
 import io.legado.app.utils.dpToPx
+import io.legado.app.utils.gone
+import io.legado.app.utils.setTextIfNotEqual
 import io.legado.app.utils.statusBarHeight
-import io.legado.app.utils.visible
 import splitties.views.backgroundColor
-import java.util.*
+import java.util.Date
 
 /**
  * 页面视图
@@ -38,10 +42,13 @@ class PageView(context: Context) : FrameLayout(context) {
     private var tvBatteryP: BatteryView? = null
     private var tvPage: BatteryView? = null
     private var tvTotalProgress: BatteryView? = null
+    private var tvTotalProgress1: BatteryView? = null
     private var tvPageAndTotal: BatteryView? = null
     private var tvBookName: BatteryView? = null
     private var tvTimeBattery: BatteryView? = null
     private var tvTimeBatteryP: BatteryView? = null
+    private var isMainView = false
+    var isScroll = false
 
     val headerHeight: Int
         get() {
@@ -54,9 +61,6 @@ class PageView(context: Context) : FrameLayout(context) {
         if (!isInEditMode) {
             upStyle()
         }
-        binding.contentTextView.upView = {
-            setProgress(it)
-        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -67,8 +71,16 @@ class PageView(context: Context) : FrameLayout(context) {
     fun upStyle() = binding.run {
         upTipStyle()
         ReadBookConfig.let {
+            val textColor = it.textColor
             val tipColor = with(ReadTipConfig) {
-                if (tipColor == 0) it.textColor else tipColor
+                if (tipColor == 0) textColor else tipColor
+            }
+            val tipDividerColor = with(ReadTipConfig) {
+                when (tipDividerColor) {
+                    -1 -> ContextCompat.getColor(context, R.color.divider)
+                    0 -> textColor
+                    else -> tipDividerColor
+                }
             }
             tvHeaderLeft.setColor(tipColor)
             tvHeaderMiddle.setColor(tipColor)
@@ -76,6 +88,8 @@ class PageView(context: Context) : FrameLayout(context) {
             tvFooterLeft.setColor(tipColor)
             tvFooterMiddle.setColor(tipColor)
             tvFooterRight.setColor(tipColor)
+            vwTopDivider.backgroundColor = tipDividerColor
+            vwBottomDivider.backgroundColor = tipDividerColor
             upStatusBar()
             llHeader.setPadding(
                 it.headerPaddingLeft.dpToPx(),
@@ -89,10 +103,9 @@ class PageView(context: Context) : FrameLayout(context) {
                 it.footerPaddingRight.dpToPx(),
                 it.footerPaddingBottom.dpToPx()
             )
-            vwTopDivider.visible(it.showHeaderLine)
-            vwBottomDivider.visible(it.showFooterLine)
+            vwTopDivider.gone(llHeader.isGone || !it.showHeaderLine)
+            vwBottomDivider.gone(llFooter.isGone || !it.showFooterLine)
         }
-        contentTextView.upVisibleRect()
         upTime()
         upBattery(battery)
     }
@@ -161,6 +174,12 @@ class PageView(context: Context) : FrameLayout(context) {
             typeface = ChapterProvider.typeface
             textSize = 12f
         }
+        tvTotalProgress1 = getTipView(ReadTipConfig.totalProgress1)?.apply {
+            tag = ReadTipConfig.totalProgress1
+            isBattery = false
+            typeface = ChapterProvider.typeface
+            textSize = 12f
+        }
         tvPageAndTotal = getTipView(ReadTipConfig.pageAndTotal)?.apply {
             tag = ReadTipConfig.pageAndTotal
             isBattery = false
@@ -213,11 +232,7 @@ class PageView(context: Context) : FrameLayout(context) {
      * 更新背景
      */
     fun upBg() {
-        if (ReadBookConfig.bgAlpha < 100) {
-            binding.vwRoot.backgroundColor = ReadBookConfig.bgMeanColor
-        } else {
-            binding.vwRoot.background = null
-        }
+        binding.vwRoot.backgroundColor = ReadBookConfig.bgMeanColor
         binding.vwBg.background = ReadBookConfig.bg
         upBgAlpha()
     }
@@ -262,11 +277,21 @@ class PageView(context: Context) : FrameLayout(context) {
      * 设置内容
      */
     fun setContent(textPage: TextPage, resetPageOffset: Boolean = true) {
-        setProgress(textPage)
+        if (isMainView && !isScroll) {
+            setProgress(textPage)
+        } else {
+            post {
+                setProgress(textPage)
+            }
+        }
         if (resetPageOffset) {
             resetPageOffset()
         }
         binding.contentTextView.setContent(textPage)
+    }
+
+    fun invalidateContentView() {
+        binding.contentTextView.invalidate()
     }
 
     /**
@@ -288,11 +313,33 @@ class PageView(context: Context) : FrameLayout(context) {
      */
     @SuppressLint("SetTextI18n")
     fun setProgress(textPage: TextPage) = textPage.apply {
-        tvBookName?.text = ReadBook.book?.name
-        tvTitle?.text = textPage.title
-        tvPage?.text = "${index.plus(1)}/$pageSize"
-        tvTotalProgress?.text = readProgress
-        tvPageAndTotal?.text = "${index.plus(1)}/$pageSize  $readProgress"
+        tvBookName?.setTextIfNotEqual(ReadBook.book?.name)
+        tvTitle?.setTextIfNotEqual(textPage.title)
+        val readProgress = readProgress
+        tvTotalProgress?.setTextIfNotEqual(readProgress)
+        tvTotalProgress1?.setTextIfNotEqual("${chapterIndex.plus(1)}/${chapterSize}")
+        if (textChapter.isCompleted) {
+            tvPageAndTotal?.setTextIfNotEqual("${index.plus(1)}/$pageSize  $readProgress")
+            tvPage?.setTextIfNotEqual("${index.plus(1)}/$pageSize")
+        } else {
+            val pageSizeInt = pageSize
+            val pageSize = if (pageSizeInt <= 0) "-" else "~$pageSizeInt"
+            tvPageAndTotal?.setTextIfNotEqual("${index.plus(1)}/$pageSize  $readProgress")
+            tvPage?.setTextIfNotEqual("${index.plus(1)}/$pageSize")
+        }
+    }
+
+    fun setAutoPager(autoPager: AutoPager?) {
+        binding.contentTextView.setAutoPager(autoPager)
+    }
+
+    fun submitRenderTask() {
+        binding.contentTextView.submitRenderTask()
+    }
+
+    fun setIsScroll(value: Boolean) {
+        isScroll = value
+        binding.contentTextView.setIsScroll(value)
     }
 
     /**
@@ -341,7 +388,12 @@ class PageView(context: Context) : FrameLayout(context) {
         return binding.contentTextView.getCurVisiblePage()
     }
 
+    fun getCurVisibleFirstLine(): TextLine? {
+        return binding.contentTextView.getCurVisibleFirstLine()
+    }
+
     fun markAsMainView() {
+        isMainView = true
         binding.contentTextView.isMainView = true
     }
 
@@ -349,20 +401,68 @@ class PageView(context: Context) : FrameLayout(context) {
         binding.contentTextView.selectStartMove(x, y - headerHeight)
     }
 
-    fun selectStartMoveIndex(relativePagePos: Int, lineIndex: Int, charIndex: Int) {
-        binding.contentTextView.selectStartMoveIndex(relativePagePos, lineIndex, charIndex)
+    fun selectStartMoveIndex(
+        relativePagePos: Int,
+        lineIndex: Int,
+        charIndex: Int,
+        isTouch: Boolean = true,
+        isLast: Boolean = false
+    ) {
+        binding.contentTextView.selectStartMoveIndex(
+            relativePagePos,
+            lineIndex,
+            charIndex,
+            isTouch,
+            isLast
+        )
+    }
+
+    fun selectStartMoveIndex(textPos: TextPos) {
+        binding.contentTextView.selectStartMoveIndex(textPos)
     }
 
     fun selectEndMove(x: Float, y: Float) {
         binding.contentTextView.selectEndMove(x, y - headerHeight)
     }
 
-    fun selectEndMoveIndex(relativePagePos: Int, lineIndex: Int, charIndex: Int) {
-        binding.contentTextView.selectEndMoveIndex(relativePagePos, lineIndex, charIndex)
+    fun selectEndMoveIndex(
+        relativePagePos: Int,
+        lineIndex: Int,
+        charIndex: Int,
+        isTouch: Boolean = true,
+        isLast: Boolean = false
+    ) {
+        binding.contentTextView.selectEndMoveIndex(
+            relativePagePos,
+            lineIndex,
+            charIndex,
+            isTouch,
+            isLast
+        )
     }
 
-    fun cancelSelect(fromSearchExit: Boolean = false) {
-        binding.contentTextView.cancelSelect(fromSearchExit)
+    fun selectEndMoveIndex(textPos: TextPos) {
+        binding.contentTextView.selectEndMoveIndex(textPos)
+    }
+
+    fun getReverseStartCursor(): Boolean {
+        return binding.contentTextView.reverseStartCursor
+    }
+
+    fun getReverseEndCursor(): Boolean {
+        return binding.contentTextView.reverseEndCursor
+    }
+
+    fun isLongScreenShot(): Boolean {
+        return binding.contentTextView.longScreenshot
+    }
+
+    fun resetReverseCursor() {
+        binding.contentTextView.resetReverseCursor()
+    }
+
+    fun cancelSelect(clearSearchResult: Boolean = false) {
+        binding.contentTextView.cancelSelect(clearSearchResult)
     }
 
     fun createBookmark(): Bookmark? {

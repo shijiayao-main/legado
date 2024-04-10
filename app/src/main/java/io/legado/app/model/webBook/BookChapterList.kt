@@ -1,25 +1,24 @@
 package io.legado.app.model.webBook
 
 import android.text.TextUtils
+import com.script.SimpleBindings
+import com.script.rhino.RhinoScriptEngine
 import io.legado.app.R
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.rule.TocRule
-import io.legado.app.exception.ConcurrentException
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.exception.TocEmptyException
 import io.legado.app.help.book.ContentProcessor
-import io.legado.app.help.http.StrResponse
+import io.legado.app.help.config.AppConfig
 import io.legado.app.model.Debug
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.utils.isTrue
-import kotlinx.coroutines.Dispatchers.IO
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
+import io.legado.app.utils.mapAsync
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.flow
 import splitties.init.appCtx
 import kotlin.coroutines.coroutineContext
 
@@ -69,7 +68,7 @@ object BookChapterList {
                         source = bookSource,
                         ruleData = book,
                         headerMapF = bookSource.getHeaderMap()
-                    ).getStrResponseConcurrentAwait() //控制并发访问
+                    ).getStrResponseAwait() //控制并发访问
                     res.body?.let { nextBody ->
                         chapterData = analyzeChapterList(
                             book, nextUrl, nextUrl,
@@ -81,27 +80,29 @@ object BookChapterList {
                 }
                 Debug.log(bookSource.bookSourceUrl, "◇目录总页数:${nextUrlList.size}")
             }
+
             else -> {
-                Debug.log(bookSource.bookSourceUrl, "◇并发解析目录,总页数:${chapterData.second.size}")
-                withContext(IO) {
-                    val asyncArray = Array(chapterData.second.size) {
-                        async(IO) {
-                            val urlStr = chapterData.second[it]
-                            val res = AnalyzeUrl(
-                                mUrl = urlStr,
-                                source = bookSource,
-                                ruleData = book,
-                                headerMapF = bookSource.getHeaderMap()
-                            ).getStrResponseConcurrentAwait() //控制并发访问
-                            analyzeChapterList(
-                                book, urlStr, res.url,
-                                res.body!!, tocRule, listRule, bookSource, false
-                            ).first
-                        }
+                Debug.log(
+                    bookSource.bookSourceUrl,
+                    "◇并发解析目录,总页数:${chapterData.second.size}"
+                )
+                flow {
+                    for (urlStr in chapterData.second) {
+                        emit(urlStr)
                     }
-                    asyncArray.forEach { coroutine ->
-                        chapterList.addAll(coroutine.await())
-                    }
+                }.mapAsync(AppConfig.threadCount) { urlStr ->
+                    val res = AnalyzeUrl(
+                        mUrl = urlStr,
+                        source = bookSource,
+                        ruleData = book,
+                        headerMapF = bookSource.getHeaderMap()
+                    ).getStrResponseAwait() //控制并发访问
+                    analyzeChapterList(
+                        book, urlStr, res.url,
+                        res.body!!, tocRule, listRule, bookSource, false
+                    ).first
+                }.collect {
+                    chapterList.addAll(it)
                 }
             }
         }
@@ -120,13 +121,29 @@ object BookChapterList {
         }
         Debug.log(book.origin, "◇目录总数:${list.size}")
         coroutineContext.ensureActive()
+        val formatJs = tocRule.formatJs
+        val bindings = SimpleBindings()
+        bindings["gInt"] = 0
         list.forEachIndexed { index, bookChapter ->
             bookChapter.index = index
+            if (!formatJs.isNullOrBlank()) {
+                bindings["index"] = index + 1
+                bindings["chapter"] = bookChapter
+                bindings["title"] = bookChapter.title
+                RhinoScriptEngine.runCatching {
+                    eval(formatJs, bindings)?.toString()?.let {
+                        bookChapter.title = it
+                    }
+                }.onFailure {
+                    Debug.log(book.origin, "格式化标题出错, ${it.localizedMessage}")
+                }
+            }
         }
         val replaceRules = ContentProcessor.get(book.name, book.origin).getTitleReplaceRules()
-        book.latestChapterTitle = list.last().getDisplayTitle(replaceRules)
+        book.latestChapterTitle =
+            list.last().getDisplayTitle(replaceRules, book.getUseReplaceRule())
         book.durChapterTitle = list.getOrElse(book.durChapterIndex) { list.last() }
-            .getDisplayTitle(replaceRules)
+            .getDisplayTitle(replaceRules, book.getUseReplaceRule())
         if (book.totalChapterNum < list.size) {
             book.lastCheckCount = list.size - book.totalChapterNum
             book.latestChapterTime = System.currentTimeMillis()
@@ -151,6 +168,7 @@ object BookChapterList {
         val analyzeRule = AnalyzeRule(book, bookSource)
         analyzeRule.setContent(body).setBaseUrl(baseUrl)
         analyzeRule.setRedirectUrl(redirectUrl)
+        analyzeRule.setCoroutineContext(coroutineContext)
         //获取目录列表
         val chapterList = arrayListOf<BookChapter>()
         Debug.log(bookSource.bookSourceUrl, "┌获取目录列表", log)
@@ -199,10 +217,16 @@ object BookChapterList {
                 if (bookChapter.url.isEmpty()) {
                     if (bookChapter.isVolume) {
                         bookChapter.url = bookChapter.title + index
-                        Debug.log(bookSource.bookSourceUrl, "⇒一级目录${index}未获取到url,使用标题替代")
+                        Debug.log(
+                            bookSource.bookSourceUrl,
+                            "⇒一级目录${index}未获取到url,使用标题替代"
+                        )
                     } else {
                         bookChapter.url = baseUrl
-                        Debug.log(bookSource.bookSourceUrl, "⇒目录${index}未获取到url,使用baseUrl替代")
+                        Debug.log(
+                            bookSource.bookSourceUrl,
+                            "⇒目录${index}未获取到url,使用baseUrl替代"
+                        )
                     }
                 }
                 if (bookChapter.title.isNotEmpty()) {
@@ -218,12 +242,16 @@ object BookChapterList {
                 }
             }
             Debug.log(bookSource.bookSourceUrl, "└目录列表解析完成", log)
-            Debug.log(bookSource.bookSourceUrl, "≡首章信息", log)
-            Debug.log(bookSource.bookSourceUrl, "◇章节名称:${chapterList[0].title}", log)
-            Debug.log(bookSource.bookSourceUrl, "◇章节链接:${chapterList[0].url}", log)
-            Debug.log(bookSource.bookSourceUrl, "◇章节信息:${chapterList[0].tag}", log)
-            Debug.log(bookSource.bookSourceUrl, "◇是否VIP:${chapterList[0].isVip}", log)
-            Debug.log(bookSource.bookSourceUrl, "◇是否购买:${chapterList[0].isPay}", log)
+            if (chapterList.isEmpty()) {
+                Debug.log(bookSource.bookSourceUrl, "◇章节列表为空", log)
+            } else {
+                Debug.log(bookSource.bookSourceUrl, "≡首章信息", log)
+                Debug.log(bookSource.bookSourceUrl, "◇章节名称:${chapterList[0].title}", log)
+                Debug.log(bookSource.bookSourceUrl, "◇章节链接:${chapterList[0].url}", log)
+                Debug.log(bookSource.bookSourceUrl, "◇章节信息:${chapterList[0].tag}", log)
+                Debug.log(bookSource.bookSourceUrl, "◇是否VIP:${chapterList[0].isVip}", log)
+                Debug.log(bookSource.bookSourceUrl, "◇是否购买:${chapterList[0].isPay}", log)
+            }
         }
         return Pair(chapterList, nextUrlList)
     }

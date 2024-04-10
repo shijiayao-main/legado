@@ -1,15 +1,16 @@
 package io.legado.app
 
+import android.app.Application
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
-import androidx.multidex.MultiDexApplication
-import com.github.liuyueyi.quick.transfer.ChineseUtils
 import com.github.liuyueyi.quick.transfer.constants.TransType
 import com.jeremyliao.liveeventbus.LiveEventBus
+import com.jeremyliao.liveeventbus.logger.DefaultLogger
 import io.legado.app.base.AppContextWrapper
 import io.legado.app.constant.AppConst.channelIdDownload
 import io.legado.app.constant.AppConst.channelIdReadAloud
@@ -18,39 +19,53 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.CrashHandler
+import io.legado.app.help.DefaultData
 import io.legado.app.help.LifecycleHelp
 import io.legado.app.help.RuleBigDataHelp
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.ThemeConfig.applyDayNight
 import io.legado.app.help.coroutine.Coroutine
-import io.legado.app.help.http.cronet.CronetLoader
+import io.legado.app.help.http.Cronet
+import io.legado.app.help.http.ObsoleteUrlFactory
+import io.legado.app.help.http.okHttpClient
+import io.legado.app.help.source.SourceHelp
+import io.legado.app.help.storage.Backup
 import io.legado.app.model.BookCover
+import io.legado.app.utils.ChineseUtils
+import io.legado.app.utils.LogUtils
 import io.legado.app.utils.defaultSharedPreferences
 import io.legado.app.utils.getPrefBoolean
 import kotlinx.coroutines.launch
 import splitties.init.appCtx
 import splitties.systemservices.notificationManager
+import java.net.URL
 import java.util.concurrent.TimeUnit
+import java.util.logging.Level
 
-class App : MultiDexApplication() {
+class App : Application() {
 
     private lateinit var oldConfig: Configuration
 
     override fun onCreate() {
         super.onCreate()
+        LogUtils.d("App", "onCreate")
         oldConfig = Configuration(resources.configuration)
         CrashHandler(this)
         //预下载Cronet so
-        CronetLoader.preDownload()
+        Cronet.preDownload()
         createNotificationChannels()
-        applyDayNight(this)
         LiveEventBus.config()
             .lifecycleObserverAlwaysActive(true)
             .autoClear(false)
+            .enableLogger(BuildConfig.DEBUG || AppConfig.recordLog)
+            .setLogger(EventLogger())
+        applyDayNight(this)
         registerActivityLifecycleCallbacks(LifecycleHelp)
         defaultSharedPreferences.registerOnSharedPreferenceChangeListener(AppConfig)
+        DefaultData.upVersion()
         Coroutine.async {
+            URL.setURLStreamHandlerFactory(ObsoleteUrlFactory(okHttpClient))
             launch { installGmsTlsProvider(appCtx) }
             //初始化封面
             BookCover.toString()
@@ -62,13 +77,19 @@ class App : MultiDexApplication() {
             }
             RuleBigDataHelp.clearInvalid()
             BookHelp.clearInvalidCache()
+            Backup.clearCache()
             //初始化简繁转换引擎
             when (AppConfig.chineseConverterType) {
-                1 -> ChineseUtils.preLoad(true, TransType.TRADITIONAL_TO_SIMPLE)
+                1 -> launch {
+                    ChineseUtils.fixT2sDict()
+                }
+
                 2 -> ChineseUtils.preLoad(true, TransType.SIMPLE_TO_TRADITIONAL)
             }
+            //调整排序序号
+            SourceHelp.adjustSortNumber()
             //同步阅读记录
-            if (AppWebDav.syncBookProgress) {
+            if (AppConfig.syncBookProgress) {
                 AppWebDav.downloadAllBookProgress()
             }
         }
@@ -125,6 +146,7 @@ class App : MultiDexApplication() {
             enableLights(false)
             enableVibration(false)
             setSound(null, null)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
         val readAloudChannel = NotificationChannel(
@@ -135,6 +157,7 @@ class App : MultiDexApplication() {
             enableLights(false)
             enableVibration(false)
             setSound(null, null)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
         val webChannel = NotificationChannel(
@@ -145,6 +168,7 @@ class App : MultiDexApplication() {
             enableLights(false)
             enableVibration(false)
             setSound(null, null)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
         //向notification manager 提交channel
@@ -155,6 +179,23 @@ class App : MultiDexApplication() {
                 webChannel
             )
         )
+    }
+
+    class EventLogger : DefaultLogger() {
+
+        override fun log(level: Level, msg: String) {
+            super.log(level, msg)
+            LogUtils.d(TAG, msg)
+        }
+
+        override fun log(level: Level, msg: String, th: Throwable?) {
+            super.log(level, msg, th)
+            LogUtils.d(TAG, "$msg\n${th?.stackTraceToString()}")
+        }
+
+        companion object {
+            private const val TAG = "[LiveEventBus]"
+        }
     }
 
 }
